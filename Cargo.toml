@@ -1,0 +1,13 @@
+[package]
+name = "futhark_ffi"
+version = "0.1.0-devel"
+edition = "2018"
+
+[dependencies]
+cc = { path = "../cc" }
+libc = { path = "../libc" }
+libloading = { path = "../libloading" }
+#memchr = { path = "../memchr" }
+#potato = { path = "../potato" }
+rustc_serialize = { path = "../rustc_serialize" }
+#tempfile = { path = "../tempfile" }
