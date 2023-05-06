@@ -327,7 +327,7 @@ impl Blake2s {
     }
 
     /// Adds more data to the running hash.
-    pub fn hash(&mut self, mut data: &[u8]) -> &mut Blake2s {
+    pub fn hash_bytes(&mut self, mut data: &[u8]) -> &mut Blake2s {
         while !data.is_empty() {
             while self.used == 0 && data.len() > 64 {
                 self.buf[..].copy_from_slice(&data[..64]);
@@ -375,7 +375,7 @@ impl Blake2s {
 
         // Return the final output.
         if self.is_mac {
-            return Blake2s::new_hash().hash(&self.key).hash(&s).finalize();
+            return Blake2s::new_hash().hash_bytes(&self.key).hash_bytes(&s).finalize();
         }
         s
     }

@@ -79,8 +79,8 @@ pub struct Object {
 impl Object {
   pub fn cached_or_new_cuda(src_buf: &[u8]) -> Result<Object, ()> {
     let mut srchash = Blake2s::new_hash();
-    srchash.hash(b"--! futhark cuda\n");
-    srchash.hash(src_buf);
+    srchash.hash_bytes(b"--! futhark cuda\n");
+    srchash.hash_bytes(src_buf);
     let h = srchash.finalize();
     let x = h.to_hex();
     let stem = format!("futhark_obj_{}", x);
@@ -102,7 +102,7 @@ impl ObjectBuild {
     work_dir.push("cache");
     fs::create_dir_all(&work_dir).ok();
     let mut srchash = Blake2s::new_hash();
-    srchash.hash(b"--! futhark cuda\n");
+    srchash.hash_bytes(b"--! futhark cuda\n");
     ObjectBuild{
       work_dir,
       srchash,
@@ -117,7 +117,7 @@ impl ObjectBuild {
   }
 
   pub fn source(&mut self, buf: &[u8]) -> &mut ObjectBuild {
-    self.srchash.hash(buf);
+    self.srchash.hash_bytes(buf);
     self.source.extend_from_slice(buf);
     self
   }
