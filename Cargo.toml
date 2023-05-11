@@ -5,6 +5,7 @@ edition = "2018"
 
 [dependencies]
 cc = { path = "../cc" }
+home = { path = "../home" }
 libc = { path = "../libc" }
 libloading = { path = "../libloading" }
 #memchr = { path = "../memchr" }
