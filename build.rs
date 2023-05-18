@@ -4,8 +4,8 @@ use std::io::{Write};
 use std::path::{PathBuf};
 
 fn main() {
-  println!("cargo:rerun-if-env-changed=TARGET");
   println!("cargo:rerun-if-changed=build.rs");
+  println!("cargo:rerun-if-env-changed=TARGET");
   let out_dir = PathBuf::from(env::var("OUT_DIR").unwrap());
   let target = env::var("TARGET").unwrap();
   let mut output = String::new();

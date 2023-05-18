@@ -21,6 +21,7 @@ use ryu::{Buffer as RyuBuffer};
 use std::cell::{RefCell};
 use std::collections::{BTreeMap};
 //use std::env;
+use std::ffi::{OsStr};
 use std::fs::{File, OpenOptions, create_dir_all};
 use std::io::{Read, Write};
 use std::marker::{PhantomData};
@@ -95,11 +96,14 @@ pub enum BuildError {
   Cache,
   FutharkCommand,
   Futhark(Option<i32>),
-  JsonPath,
+  /*JsonPath,
   JsonUtf8,
   JsonFromStr,
-  JsonDecode,
+  JsonDecode,*/
+  Json,
   Cc,
+  DylibPath,
+  DylibHash,
   Dylib,
 }
 
@@ -201,6 +205,33 @@ pub fn fixup_json_manifest(j: Json) -> Json {
       Json::Array(xs.into_iter().map(|x| fixup_json_manifest(x)).collect())
     }
     _ => j
+  }
+}
+
+impl ObjectManifest {
+  pub fn open_with_hash<P: AsRef<Path>>(json_path: P) -> Result<(ObjectManifest, String), ()> {
+    match OpenOptions::new().read(true).write(false).create(false).open(json_path) {
+      Err(_) => return Err(()),
+      Ok(mut json_f) => {
+        let mut json_buf = Vec::new();
+        match json_f.read_to_end(&mut json_buf) {
+          Err(_) => panic!("bug"),
+          Ok(_) => {}
+        }
+        let mut h = Blake2s::new_hash();
+        h.hash_bytes(&json_buf);
+        let h = h.finalize();
+        let hx = h.to_hex();
+        let j = match Json::from_str(from_utf8(&json_buf).map_err(|_| ())?) {
+          Err(_) => return Err(()),
+          Ok(j) => j
+        };
+        match Decodable::decode(&mut JsonDecoder::new(fixup_json_manifest(j))) {
+          Err(_) => return Err(()),
+          Ok(m) => Ok((m, hx))
+        }
+      }
+    }
   }
 }
 
@@ -365,6 +396,26 @@ impl<B: Backend> Drop for Object<B> {
   }
 }
 
+impl<B: Backend> Object<B> {
+  pub fn open<P: AsRef<OsStr>>(manifest: ObjectManifest, dylib_path: P) -> Result<Object<B>, ()> {
+    let mut ffi = ObjectFFI::default();
+    unsafe {
+      ffi._inner = Some(match Library::new(dylib_path) {
+        Err(_) => return Err(()),
+        Ok(dylib) => dylib
+      });
+      ffi.load_symbols();
+    }
+    Ok(Object{
+      manifest,
+      ffi,
+      cfg:  null_mut(),
+      ctx:  null_mut(),
+      _mrk: PhantomData,
+    })
+  }
+}
+
 impl Config {
   pub fn cached_or_new_object<B: Backend>(&self, src_buf: &[u8]) -> Result<Object<B>, BuildError> {
     let mut srchash = Blake2s::new_hash();
@@ -380,9 +431,11 @@ impl Config {
     let mut h_path = f_path.clone();
     let mut json_path = f_path.clone();
     let mut dylib_path = f_path.clone();
+    let mut hash_path = f_path.clone();
     c_path.set_extension("c");
     h_path.set_extension("h");
     json_path.set_extension("json");
+    hash_path.set_extension("hash");
     // FIXME FIXME: os-specific dylib path.
     match dylib_path.file_name() {
       None => panic!("bug"),
@@ -391,10 +444,37 @@ impl Config {
       }
     }
     dylib_path.set_extension("so");
-    // FIXME FIXME: caching.
-    match OpenOptions::new().write(true).create(true).truncate(true).open(&f_path) {
+    //println!("DEBUG: futhark_ffi::Config::cached_or_new_object: target: {}", self::build_env::TARGET);
+    //println!("DEBUG: futhark_ffi::Config::cached_or_new_object: dylib path: {}", dylib_path.to_str().unwrap());
+    //println!("DEBUG: futhark_ffi::Config::cached_or_new_object: dylib file: {}", dylib_path.file_name().unwrap().to_str().unwrap());
+    match (ObjectManifest::open_with_hash(&json_path),
+           OpenOptions::new().read(true).write(false).create(false).open(&dylib_path),
+           OpenOptions::new().read(true).write(false).create(false).open(&hash_path))
+    {
+      (Ok((manifest, json_hx)), Ok(mut dylib_f), Ok(mut hash_f)) => {
+        let mut hx_buf = Vec::new();
+        hx_buf.extend_from_slice(json_hx.as_bytes());
+        let mut dylib_buf = Vec::new();
+        dylib_f.read_to_end(&mut dylib_buf).unwrap();
+        let mut dylib_h = Blake2s::new_hash();
+        dylib_h.hash_bytes(&dylib_buf);
+        let dylib_h = dylib_h.finalize();
+        let dylib_hx = dylib_h.to_hex();
+        hx_buf.extend_from_slice(dylib_hx.as_bytes());
+        let mut hash_buf = Vec::new();
+        hash_f.read_to_end(&mut hash_buf).unwrap();
+        if hash_buf.len() >= hx_buf.len() &&
+           &hx_buf == &hash_buf[ .. hx_buf.len()]
+        {
+          println!("DEBUG: futhark_ffi::Config::cached_or_new_object: load cached...");
+          return Object::open(manifest, &dylib_path).map_err(|_| BuildError::Dylib);
+        }
+      }
+      _ => {}
+    }
+    match OpenOptions::new().read(false).write(true).create(true).truncate(true).open(&f_path) {
       Err(_) => return Err(BuildError::Cache),
-      Ok(ref mut f) => {
+      Ok(mut f) => {
         f.write_all(src_buf).unwrap();
       }
     }
@@ -412,30 +492,13 @@ impl Config {
         }
       }
     }
-    let manifest: ObjectManifest = match File::open(&json_path) {
-      Err(_) => return Err(BuildError::JsonPath),
-      Ok(mut json_f) => {
-        let mut json_buf = Vec::new();
-        match json_f.read_to_end(&mut json_buf) {
-          Err(_) => panic!("bug"),
-          Ok(_) => {}
-        }
-        let j = match Json::from_str(from_utf8(&json_buf).map_err(|_| BuildError::JsonUtf8)?) {
-          Err(_) => return Err(BuildError::JsonFromStr),
-          Ok(j) => j
-        };
-        match Decodable::decode(&mut JsonDecoder::new(fixup_json_manifest(j))) {
-          Err(_) => return Err(BuildError::JsonDecode),
-          Ok(m) => m
-        }
-      }
+    let (manifest, json_hx) = match ObjectManifest::open_with_hash(&json_path) {
+      Err(_) => return Err(BuildError::Json),
+      Ok((m, hx)) => (m, hx)
     };
     if &manifest.backend != B::cmd_arg() {
       panic!("bug");
     }
-    println!("DEBUG: futhark_ffi::Config::cached_or_new_object: target: {}", self::build_env::TARGET);
-    println!("DEBUG: futhark_ffi::Config::cached_or_new_object: dylib path: {}", dylib_path.to_str().unwrap());
-    println!("DEBUG: futhark_ffi::Config::cached_or_new_object: dylib file: {}", dylib_path.file_name().unwrap().to_str().unwrap());
     match cc::Build::new()
       // NB: We have to set `out_dir`, `target`, `host`, `debug`, and `opt_level`;
       // normally they are read from env vars passed by cargo to the build script.
@@ -460,20 +523,25 @@ impl Config {
       }
       Ok(_) => {}
     }
-    let mut ffi = ObjectFFI::default();
-    unsafe {
-      ffi._inner = Some(match Library::new(&dylib_path) {
-        Err(_) => return Err(BuildError::Dylib),
-        Ok(dylib) => dylib
-      });
-      ffi.load_symbols();
+    match OpenOptions::new().read(true).write(false).create(false).open(&dylib_path) {
+      Err(_) => return Err(BuildError::DylibPath),
+      Ok(mut dylib_f) => {
+        let mut buf = Vec::new();
+        dylib_f.read_to_end(&mut buf).unwrap();
+        let mut h = Blake2s::new_hash();
+        h.hash_bytes(&buf);
+        let h = h.finalize();
+        let hx = h.to_hex();
+        match OpenOptions::new().read(false).write(true).create(true).truncate(true).open(&hash_path) {
+          Err(_) => return Err(BuildError::DylibHash),
+          Ok(mut hash_f) => {
+            hash_f.write_all(json_hx.as_bytes()).unwrap();
+            hash_f.write_all(hx.as_bytes()).unwrap();
+          }
+        }
+      }
     }
-    Ok(Object{
-      manifest,
-      ffi,
-      cfg:  null_mut(),
-      ctx:  null_mut(),
-      _mrk: PhantomData,
-    })
+    println!("DEBUG: futhark_ffi::Config::cached_or_new_object: new build done!");
+    Object::open(manifest, &dylib_path).map_err(|_| BuildError::Dylib)
   }
 }
