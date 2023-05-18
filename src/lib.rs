@@ -72,20 +72,29 @@ impl FutharkFloatFormatter {
 #[derive(Clone, Debug)]
 pub struct Config {
   // TODO
-  pub work_dir: PathBuf,
+  pub cachedir: PathBuf,
   pub futhark:  PathBuf,
+  pub target:   Option<String>,
 }
 
 impl Default for Config {
   fn default() -> Config {
-    let mut work_dir = home_dir().unwrap();
-    work_dir.push(".futhark_ffi");
-    work_dir.push("cache");
+    let mut cachedir = home_dir().unwrap();
+    cachedir.push(".futhark_ffi");
+    cachedir.push("cache");
     let futhark = PathBuf::from("../futhark_ffi/futhark");
+    let target = None;
     Config{
-      work_dir,
+      cachedir,
       futhark,
+      target,
     }
+  }
+}
+
+impl Config {
+  pub fn target(&self) -> &str {
+    self.target.as_ref().map(|s| s.as_ref()).unwrap_or(crate::build_env::TARGET)
   }
 }
 
@@ -423,8 +432,8 @@ impl Config {
     let h = srchash.finalize();
     let hx = h.to_hex();
     let stem = format!("futhark_obj_{}_{}", B::cmd_arg(), hx);
-    create_dir_all(&self.work_dir).ok();
-    let mut f_path = self.work_dir.clone();
+    create_dir_all(&self.cachedir).ok();
+    let mut f_path = self.cachedir.clone();
     f_path.push(&stem);
     f_path.set_extension("fut");
     let mut c_path = f_path.clone();
@@ -444,7 +453,7 @@ impl Config {
       }
     }
     dylib_path.set_extension("so");
-    //println!("DEBUG: futhark_ffi::Config::cached_or_new_object: target: {}", self::build_env::TARGET);
+    //println!("DEBUG: futhark_ffi::Config::cached_or_new_object: target: {}", crate::build_env::TARGET);
     //println!("DEBUG: futhark_ffi::Config::cached_or_new_object: dylib path: {}", dylib_path.to_str().unwrap());
     //println!("DEBUG: futhark_ffi::Config::cached_or_new_object: dylib file: {}", dylib_path.file_name().unwrap().to_str().unwrap());
     match (ObjectManifest::open_with_hash(&json_path),
@@ -502,13 +511,13 @@ impl Config {
     match cc::Build::new()
       // NB: We have to set `out_dir`, `target`, `host`, `debug`, and `opt_level`;
       // normally they are read from env vars passed by cargo to the build script.
-      .out_dir(&self.work_dir)
-      .target(self::build_env::TARGET)
-      .host(self::build_env::TARGET)
+      .out_dir(&self.cachedir)
+      .target(self.target())
+      .host(self.target())
       .debug(false)
       .opt_level(2)
       .pic(true)
-      .include(&self.work_dir)
+      .include(&self.cachedir)
       .include("../virtcuda")
       .file(&c_path)
       .object_prefix_hash(false)
