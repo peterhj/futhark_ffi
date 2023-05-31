@@ -1,5 +1,4 @@
 extern crate cc;
-extern crate home;
 extern crate libc;
 extern crate libloading;
 extern crate rustc_serialize;
@@ -10,7 +9,7 @@ use self::blake2s::{Blake2s};
 use self::bindings::{ObjectFFI};
 use self::types::*;
 
-use home::{home_dir};
+use libc::{c_void, malloc, free};
 //use potato::{Blake2s};
 use rustc_serialize::{Decodable};
 use rustc_serialize::hex::{ToHex};
@@ -18,6 +17,7 @@ use rustc_serialize::json::{Decoder as JsonDecoder, Json};
 use ryu::{Buffer as RyuBuffer};
 //use tempfile::{Builder as TempBuilder};
 
+//use std::alloc::{Layout, alloc, dealloc};
 use std::cell::{RefCell};
 use std::collections::{BTreeMap};
 //use std::env;
@@ -25,9 +25,11 @@ use std::ffi::{OsStr};
 use std::fs::{File, OpenOptions, create_dir_all};
 use std::io::{Read, Write};
 use std::marker::{PhantomData};
+use std::mem::{size_of};
 use std::path::{Path, PathBuf};
 use std::process::{Command};
-use std::ptr::{null_mut};
+use std::ptr::{copy_nonoverlapping, null_mut, write};
+use std::slice::{from_raw_parts};
 use std::str::{from_utf8};
 
 pub mod bindings;
@@ -60,10 +62,9 @@ impl FutharkFloatFormatter {
     } else if !x.is_finite() {
       // FIXME FIXME: double check this api.
       if x.is_sign_negative() {
-        s.push_str("-f32.inf");
-      } else {
-        s.push_str("f32.inf");
+        s.push_str("-");
       }
+      s.push_str("f32.inf");
     } else {
       s.push_str(self.buf.borrow_mut().format_finite(x));
       s.push_str("f32");
@@ -71,28 +72,13 @@ impl FutharkFloatFormatter {
   }
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Default, Debug)]
 pub struct Config {
   // TODO
   pub cachedir: PathBuf,
   pub futhark:  PathBuf,
+  pub include:  PathBuf,
   pub target:   Option<String>,
-}
-
-impl Default for Config {
-  fn default() -> Config {
-    let mut cachedir = home_dir().unwrap();
-    cachedir.push(".futhark_ffi");
-    cachedir.push("cache");
-    // FIXME FIXME: figure out how to package this.
-    let futhark = PathBuf::from("../futhark_ffi/cacti-futhark");
-    let target = None;
-    Config{
-      cachedir,
-      futhark,
-      target,
-    }
-  }
 }
 
 impl Config {
@@ -372,7 +358,7 @@ impl Config {
       .opt_level(2)
       .pic(true)
       .include(&self.cachedir)
-      .include("../virtcuda")
+      .include(&self.include)
       .file(&c_path)
       .object_prefix_hash(false)
       .archive(false)
@@ -407,5 +393,194 @@ impl Config {
     }
     println!("DEBUG: futhark_ffi::Config::cached_or_new_object: new build done!");
     Object::open(manifest, &dylib_path).map_err(|_| BuildError::Dylib)
+  }
+}
+
+impl<B: Backend> Object<B> {
+  /*pub fn setup(&self, ) {
+    unimplemented!();
+  }*/
+
+  pub fn reset(&self, ) {
+    (self.ffi.ctx_reset.as_ref().unwrap())(self.ctx);
+  }
+
+  pub fn may_fail(&self) -> bool {
+    let ret = (self.ffi.ctx_may_fail.as_ref().unwrap())(self.ctx);
+    ret != 0
+  }
+
+  pub fn sync(&self) -> Result<(), i32> {
+    let ret = (self.ffi.ctx_sync.as_ref().unwrap())(self.ctx);
+    if ret != FUTHARK_SUCCESS {
+      return Err(ret);
+    }
+    Ok(())
+  }
+}
+
+pub trait ObjectExt {
+  type Array;
+  type RawArray;
+
+  fn enter_kernel(&mut self, arityin: u16, arityout: u16, arg_arr: &[Self::Array], out_raw_arr: &mut [Self::RawArray]) -> Result<(), i32>;
+}
+
+impl ObjectExt for Object<CudaBackend> {
+  type Array = ArrayDev;
+  type RawArray = *mut memblock_dev;
+
+  fn enter_kernel(&mut self, arityin: u16, arityout: u16, arg_arr: &[ArrayDev], out_raw_arr: &mut [*mut memblock_dev]) -> Result<(), i32> {
+    // FIXME FIXME
+    let out_raw_arr_buf_len = out_raw_arr.len();
+    let out_raw_arr_buf = out_raw_arr.as_mut_ptr();
+    assert_eq!(arg_arr.len(), arityin as usize);
+    assert_eq!(out_raw_arr_buf_len, arityout as usize);
+    unsafe { self.ffi.load_entry_symbol(arityin, arityout, true); }
+    let ret = match (arityin, arityout) {
+      (0, 1) => (self.ffi.entry_0_1_dev.as_ref().unwrap())(self.ctx, out_raw_arr_buf),
+      (1, 1) => (self.ffi.entry_1_1_dev.as_ref().unwrap())(self.ctx, out_raw_arr_buf, arg_arr[0].as_ptr()),
+      (2, 1) => (self.ffi.entry_2_1_dev.as_ref().unwrap())(self.ctx, out_raw_arr_buf, arg_arr[0].as_ptr(), arg_arr[1].as_ptr()),
+      (3, 1) => (self.ffi.entry_3_1_dev.as_ref().unwrap())(self.ctx, out_raw_arr_buf, arg_arr[0].as_ptr(), arg_arr[1].as_ptr(), arg_arr[2].as_ptr()),
+      (4, 1) => (self.ffi.entry_4_1_dev.as_ref().unwrap())(self.ctx, out_raw_arr_buf, arg_arr[0].as_ptr(), arg_arr[1].as_ptr(), arg_arr[2].as_ptr(), arg_arr[3].as_ptr()),
+      _ => panic!("bug: Object::<CudaBackend>::enter_kernel: unimplemented: arityin={} arityout={}", arityin, arityout)
+    };
+    if ret != FUTHARK_SUCCESS {
+      return Err(ret);
+    }
+    Ok(())
+  }
+}
+
+pub struct ArrayDev {
+  raw:  usize,
+}
+
+impl Drop for ArrayDev {
+  fn drop(&mut self) {
+    let ptr = self.as_ptr();
+    if ptr.is_null() {
+      return;
+    }
+    match self.dec_refcount() {
+      Some(0) => {
+        // FIXME FIXME: first, unref.
+        match self.raw & 7 {
+          1 | 2 | 3 | 4 => unsafe { free(ptr as *mut _) },
+          _ => unreachable!()
+        }
+      }
+      Some(_) | None => {}
+    }
+  }
+}
+
+impl ArrayDev {
+  pub fn from_raw(ptr: *mut memblock_dev, ndim: u8) -> ArrayDev {
+    assert!(!ptr.is_null());
+    let raw_ptr = ptr as usize;
+    assert_eq!(raw_ptr & 7, 0);
+    let raw = match ndim {
+      1 | 2 | 3 | 4 => raw_ptr | (ndim as usize),
+      _ => unreachable!()
+    };
+    ArrayDev{raw}
+  }
+
+  pub fn alloc_1d() -> ArrayDev {
+    assert_eq!(size_of::<array_1d_dev>(), size_of::<memblock_dev>() + 8);
+    let ptr = unsafe { malloc(size_of::<array_1d_dev>()) } as *mut _;
+    ArrayDev::from_raw(ptr, 1)
+  }
+
+  pub fn alloc_2d() -> ArrayDev {
+    assert_eq!(size_of::<array_2d_dev>(), size_of::<memblock_dev>() + 8 * 2);
+    let ptr = unsafe { malloc(size_of::<array_2d_dev>()) } as *mut _;
+    ArrayDev::from_raw(ptr, 2)
+  }
+
+  pub fn alloc_3d() -> ArrayDev {
+    assert_eq!(size_of::<array_3d_dev>(), size_of::<memblock_dev>() + 8 * 3);
+    let ptr = unsafe { malloc(size_of::<array_3d_dev>()) } as *mut _;
+    ArrayDev::from_raw(ptr, 3)
+  }
+
+  pub fn alloc_4d() -> ArrayDev {
+    assert_eq!(size_of::<array_4d_dev>(), size_of::<memblock_dev>() + 8 * 4);
+    let ptr = unsafe { malloc(size_of::<array_4d_dev>()) } as *mut _;
+    ArrayDev::from_raw(ptr, 4)
+  }
+
+  pub fn as_ptr(&self) -> *mut memblock_dev {
+    (self.raw & (!7)) as *mut _
+  }
+
+  pub fn refcount(&self) -> Option<i32> {
+    unsafe {
+      let mem = self.as_ptr() as *const memblock_dev;
+      if mem.is_null() {
+        return None;
+      }
+      let c = (&*mem).refcount as *const i32;
+      if c.is_null() {
+        return None;
+      }
+      Some(*c)
+    }
+  }
+
+  pub fn dec_refcount(&self) -> Option<i32> {
+    unsafe {
+      let mem = self.as_ptr();
+      if mem.is_null() {
+        return None;
+      }
+      let c = (&*mem).refcount as *mut i32;
+      if c.is_null() {
+        return None;
+      }
+      let prev_c = *c;
+      assert!(prev_c >= 1);
+      let new_c = prev_c - 1;
+      write(c, new_c);
+      Some(new_c)
+    }
+  }
+
+  pub fn parts(&self) -> Option<(u64, usize)> {
+    unsafe {
+      let mem = self.as_ptr() as *const memblock_dev;
+      if mem.is_null() {
+        return None;
+      }
+      let mem = &*mem;
+      Some((mem.mem_dptr, mem.mem_size))
+    }
+  }
+
+  pub unsafe fn shape(&self) -> Option<&[i64]> {
+    let ndim = self.raw & 7;
+    if ndim == 0 {
+      return None;
+    }
+    let ptr = self.as_ptr() as *const u8;
+    if ptr.is_null() {
+      return None;
+    }
+    let buf = ptr.offset(size_of::<memblock_dev>() as _) as *const i64;
+    Some(from_raw_parts(buf, ndim))
+  }
+
+  pub fn set_shape(&self, shape: &[i64]) {
+    let ndim = self.raw & 7;
+    assert!(ndim != 0);
+    assert_eq!(ndim, shape.len());
+    unsafe {
+      let ptr = self.as_ptr() as *mut u8;
+      assert!(!ptr.is_null());
+      let buf = ptr.offset(size_of::<memblock_dev>() as _) as *mut i64;
+      // FIXME FIXME: check that we can do copy_nonoverlapping.
+      copy_nonoverlapping(shape.as_ptr(), buf, ndim);
+    }
   }
 }

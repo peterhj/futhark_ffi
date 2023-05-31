@@ -15,6 +15,8 @@ pub struct ObjectFFI {
   // TODO TODO
   pub ctx_cfg_set_gpu_alloc:                Option<Symbol<extern "C" fn (*mut futhark_context_config, *mut c_void)>>,
   pub ctx_cfg_set_gpu_free:                 Option<Symbol<extern "C" fn (*mut futhark_context_config, *mut c_void)>>,
+  pub ctx_cfg_set_gpu_back_alloc:           Option<Symbol<extern "C" fn (*mut futhark_context_config, *mut c_void)>>,
+  pub ctx_cfg_set_gpu_back_free:            Option<Symbol<extern "C" fn (*mut futhark_context_config, *mut c_void)>>,
   // TODO TODO
   pub ctx_cfg_set_cuGetErrorString:         Option<Symbol<extern "C" fn (*mut futhark_context_config, *mut c_void)>>,
   pub ctx_cfg_set_cuInit:                   Option<Symbol<extern "C" fn (*mut futhark_context_config, *mut c_void)>>,
@@ -22,6 +24,8 @@ pub struct ObjectFFI {
   pub ctx_cfg_set_cuDeviceGetName:          Option<Symbol<extern "C" fn (*mut futhark_context_config, *mut c_void)>>,
   pub ctx_cfg_set_cuDeviceGet:              Option<Symbol<extern "C" fn (*mut futhark_context_config, *mut c_void)>>,
   pub ctx_cfg_set_cuDeviceGetAttribute:     Option<Symbol<extern "C" fn (*mut futhark_context_config, *mut c_void)>>,
+  pub ctx_cfg_set_cuDevicePrimaryCtxRetain: Option<Symbol<extern "C" fn (*mut futhark_context_config, *mut c_void)>>,
+  pub ctx_cfg_set_cuDevicePrimaryCtxRelease: Option<Symbol<extern "C" fn (*mut futhark_context_config, *mut c_void)>>,
   pub ctx_cfg_set_cuCtxCreate:              Option<Symbol<extern "C" fn (*mut futhark_context_config, *mut c_void)>>,
   pub ctx_cfg_set_cuCtxDestroy:             Option<Symbol<extern "C" fn (*mut futhark_context_config, *mut c_void)>>,
   pub ctx_cfg_set_cuCtxPopCurrent:          Option<Symbol<extern "C" fn (*mut futhark_context_config, *mut c_void)>>,
@@ -52,8 +56,9 @@ pub struct ObjectFFI {
   pub ctx_cfg_set_cuModuleGetFunction:      Option<Symbol<extern "C" fn (*mut futhark_context_config, *mut c_void)>>,
   pub ctx_cfg_set_cuFuncGetAttribute:       Option<Symbol<extern "C" fn (*mut futhark_context_config, *mut c_void)>>,
   pub ctx_cfg_set_cuLaunchKernel:           Option<Symbol<extern "C" fn (*mut futhark_context_config, *mut c_void)>>,
-  pub ctx_new:      Option<Symbol<extern "C" fn (*mut futhark_context_config) -> *mut futhark_context>>,
-  pub ctx_free:     Option<Symbol<extern "C" fn (*mut futhark_context)>>,
+  pub ctx_new:              Option<Symbol<extern "C" fn (*mut futhark_context_config) -> *mut futhark_context>>,
+  pub ctx_free:             Option<Symbol<extern "C" fn (*mut futhark_context)>>,
+  pub ctx_reset:            Option<Symbol<extern "C" fn (*mut futhark_context)>>,
   pub ctx_set_max_block_size:       Option<Symbol<extern "C" fn (*mut futhark_context, usize)>>,
   pub ctx_set_max_grid_size:        Option<Symbol<extern "C" fn (*mut futhark_context, usize)>>,
   pub ctx_set_max_tile_size:        Option<Symbol<extern "C" fn (*mut futhark_context, usize)>>,
@@ -63,29 +68,24 @@ pub struct ObjectFFI {
   pub ctx_set_lockstep_width:       Option<Symbol<extern "C" fn (*mut futhark_context, usize)>>,
   pub ctx_set_device:       Option<Symbol<extern "C" fn (*mut futhark_context, c_int) -> c_int>>,
   pub ctx_set_stream:       Option<Symbol<extern "C" fn (*mut futhark_context, *mut c_void) -> *mut c_void>>,
-  pub ctx_may_fail: Option<Symbol<extern "C" fn (*mut futhark_context) -> c_int>>,
-  pub ctx_sync:     Option<Symbol<extern "C" fn (*mut futhark_context) -> c_int>>,
-  /*new_f32_1d:   Option<Symbol<extern "C" fn () -> ()>>,
-  new_i32_1d:   Option<Symbol<extern "C" fn () -> ()>>,
-  new_u32_1d:   Option<Symbol<extern "C" fn () -> ()>>,
-  new_f16_1d:   Option<Symbol<extern "C" fn () -> ()>>,
-  new_u16_1d:   Option<Symbol<extern "C" fn () -> ()>>,
-  new_u8_1d:    Option<Symbol<extern "C" fn () -> ()>>,*/
+  pub ctx_may_fail:         Option<Symbol<extern "C" fn (*mut futhark_context) -> c_int>>,
+  pub ctx_sync:             Option<Symbol<extern "C" fn (*mut futhark_context) -> c_int>>,
   // TODO
   // FIXME FIXME: how to handle polymorphic entry point signature?
   //pub entry:  Option<Symbol<extern "C" fn () -> ()>>,
-  pub entry_0_1_dev:        Option<Symbol<extern "C" fn (*mut futhark_context, *mut memblock_dev) -> c_int>>,
-  pub entry_1_1_dev:        Option<Symbol<extern "C" fn (*mut futhark_context, *mut memblock_dev, *mut memblock_dev) -> c_int>>,
-  pub entry_2_1_dev:        Option<Symbol<extern "C" fn (*mut futhark_context, *mut memblock_dev, *mut memblock_dev, *mut memblock_dev) -> c_int>>,
-  pub entry_3_1_dev:        Option<Symbol<extern "C" fn (*mut futhark_context, *mut memblock_dev, *mut memblock_dev, *mut memblock_dev, *mut memblock_dev) -> c_int>>,
-  pub entry_4_1_dev:        Option<Symbol<extern "C" fn (*mut futhark_context, *mut memblock_dev, *mut memblock_dev, *mut memblock_dev, *mut memblock_dev, *mut memblock_dev) -> c_int>>,
+  pub entry_0_1_dev:        Option<Symbol<extern "C" fn (*mut futhark_context, *mut *mut memblock_dev) -> c_int>>,
+  pub entry_1_1_dev:        Option<Symbol<extern "C" fn (*mut futhark_context, *mut *mut memblock_dev, *mut memblock_dev) -> c_int>>,
+  pub entry_2_1_dev:        Option<Symbol<extern "C" fn (*mut futhark_context, *mut *mut memblock_dev, *mut memblock_dev, *mut memblock_dev) -> c_int>>,
+  pub entry_3_1_dev:        Option<Symbol<extern "C" fn (*mut futhark_context, *mut *mut memblock_dev, *mut memblock_dev, *mut memblock_dev, *mut memblock_dev) -> c_int>>,
+  pub entry_4_1_dev:        Option<Symbol<extern "C" fn (*mut futhark_context, *mut *mut memblock_dev, *mut memblock_dev, *mut memblock_dev, *mut memblock_dev, *mut memblock_dev) -> c_int>>,
+  pub entry: Option<(u16, u16, bool)>,
 }
 
 impl Drop for ObjectFFI {
   fn drop(&mut self) {
     let inner = self._inner.take();
-    *self = Default::default();
     if let Some(inner) = inner {
+      *self = Default::default();
       drop(inner);
     }
   }
@@ -114,6 +114,8 @@ impl ObjectFFI {
     // TODO TODO
     self.ctx_cfg_set_gpu_alloc = inner.get(b"futhark_context_config_set_gpu_alloc").ok();
     self.ctx_cfg_set_gpu_free = inner.get(b"futhark_context_config_set_gpu_free").ok();
+    self.ctx_cfg_set_gpu_back_alloc = inner.get(b"futhark_context_config_set_gpu_back_alloc").ok();
+    self.ctx_cfg_set_gpu_back_free = inner.get(b"futhark_context_config_set_gpu_back_free").ok();
     // TODO TODO
     self.ctx_cfg_set_cuGetErrorString = inner.get(b"futhark_context_config_set_cuGetErrorString").ok();
     self.ctx_cfg_set_cuInit = inner.get(b"futhark_context_config_set_cuInit").ok();
@@ -121,6 +123,8 @@ impl ObjectFFI {
     self.ctx_cfg_set_cuDeviceGetName = inner.get(b"futhark_context_config_set_cuDeviceGetName").ok();
     self.ctx_cfg_set_cuDeviceGet = inner.get(b"futhark_context_config_set_cuDeviceGet").ok();
     self.ctx_cfg_set_cuDeviceGetAttribute = inner.get(b"futhark_context_config_set_cuDeviceGetAttribute").ok();
+    self.ctx_cfg_set_cuDevicePrimaryCtxRetain = inner.get(b"futhark_context_config_set_cuDevicePrimaryCtxRetain").ok();
+    self.ctx_cfg_set_cuDevicePrimaryCtxRelease = inner.get(b"futhark_context_config_set_cuDevicePrimaryCtxRelease").ok();
     self.ctx_cfg_set_cuCtxCreate = inner.get(b"futhark_context_config_set_cuCtxCreate").ok();
     self.ctx_cfg_set_cuCtxDestroy = inner.get(b"futhark_context_config_set_cuCtxDestroy").ok();
     self.ctx_cfg_set_cuCtxPopCurrent = inner.get(b"futhark_context_config_set_cuCtxPopCurrent").ok();
@@ -153,6 +157,7 @@ impl ObjectFFI {
     self.ctx_cfg_set_cuLaunchKernel = inner.get(b"futhark_context_config_set_cuLaunchKernel").ok();
     self.ctx_new = inner.get(b"futhark_context_new").ok();
     self.ctx_free = inner.get(b"futhark_context_free").ok();
+    self.ctx_reset = inner.get(b"futhark_context_reset").ok();
     self.ctx_set_max_block_size = inner.get(b"futhark_context_set_max_block_size").ok();
     self.ctx_set_max_grid_size = inner.get(b"futhark_context_set_max_grid_size").ok();
     self.ctx_set_max_tile_size = inner.get(b"futhark_context_set_max_tile_size").ok();
@@ -165,8 +170,35 @@ impl ObjectFFI {
     self.ctx_may_fail = inner.get(b"futhark_context_may_fail").ok();
     self.ctx_sync = inner.get(b"futhark_context_sync").ok();
     // TODO
-    // FIXME FIXME: should defer entry point resolution...?
-    /*self.entry = inner.get(b"futhark_enter_kernel").ok();*/
-    // TODO
+  }
+
+  pub unsafe fn load_entry_symbol(&mut self, arityin: u16, arityout: u16, dev: bool) {
+    match self.entry {
+      None => {}
+      Some(e) => {
+        assert_eq!(e, (arityin, arityout, dev));
+        return;
+      }
+    }
+    let inner = self._inner.as_ref().unwrap();
+    match (arityin, arityout, dev) {
+      (0, 1, true) => {
+        self.entry_0_1_dev = inner.get(b"futhark_entry_kernel").ok();
+      }
+      (1, 1, true) => {
+        self.entry_1_1_dev = inner.get(b"futhark_entry_kernel").ok();
+      }
+      (2, 1, true) => {
+        self.entry_2_1_dev = inner.get(b"futhark_entry_kernel").ok();
+      }
+      (3, 1, true) => {
+        self.entry_3_1_dev = inner.get(b"futhark_entry_kernel").ok();
+      }
+      (4, 1, true) => {
+        self.entry_4_1_dev = inner.get(b"futhark_entry_kernel").ok();
+      }
+      _ => unimplemented!()
+    }
+    self.entry = Some((arityin, arityout, dev));
   }
 }
