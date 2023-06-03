@@ -511,8 +511,19 @@ impl ArrayDev {
     ArrayDev::from_raw(ptr, 4)
   }
 
+  pub fn into_raw(self) -> (*mut memblock_dev, u8) {
+    let ArrayDev{raw} = self;
+    let ptr = (raw & (!7)) as *mut _;
+    let ndim = (raw & 7) as _;
+    (ptr, ndim)
+  }
+
   pub fn as_ptr(&self) -> *mut memblock_dev {
     (self.raw & (!7)) as *mut _
+  }
+
+  pub fn ndim(&self) -> u8 {
+    (self.raw & 7) as _
   }
 
   pub fn refcount(&self) -> Option<i32> {
