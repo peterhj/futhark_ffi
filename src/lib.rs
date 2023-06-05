@@ -25,7 +25,7 @@ use std::ffi::{OsStr};
 use std::fs::{File, OpenOptions, create_dir_all};
 use std::io::{Read, Write};
 use std::marker::{PhantomData};
-use std::mem::{size_of};
+use std::mem::{size_of, swap};
 use std::path::{Path, PathBuf};
 use std::process::{Command};
 use std::ptr::{copy_nonoverlapping, null_mut, write};
@@ -511,11 +511,23 @@ impl ArrayDev {
     ArrayDev::from_raw(ptr, 4)
   }
 
-  pub fn into_raw(self) -> (*mut memblock_dev, u8) {
+  /*pub fn into_raw(self) -> (*mut memblock_dev, u8) {
+    // FIXME: this still drops b/c raw is Copy.
     let ArrayDev{raw} = self;
     let ptr = (raw & (!7)) as *mut _;
     let ndim = (raw & 7) as _;
     (ptr, ndim)
+  }*/
+
+  pub fn take_ptr(&mut self) -> *mut memblock_dev {
+    let mask = (self.raw & 7);
+    self.raw &= (!7);
+    let nil: *mut memblock_dev = null_mut();
+    let mut out = nil as usize;
+    swap(&mut out, &mut self.raw);
+    self.raw |= mask;
+    let ptr = out as *mut _;
+    ptr
   }
 
   pub fn as_ptr(&self) -> *mut memblock_dev {
