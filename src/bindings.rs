@@ -1,3 +1,4 @@
+use crate::{AbiScalarType, AbiSpace};
 use crate::types::*;
 
 use libc::{c_int, c_void};
@@ -73,12 +74,16 @@ pub struct ObjectFFI {
   // TODO
   // FIXME FIXME: how to handle polymorphic entry point signature?
   //pub entry:  Option<Symbol<extern "C" fn () -> ()>>,
-  pub entry_0_1_dev:        Option<Symbol<extern "C" fn (*mut futhark_context, *mut *mut memblock_dev) -> c_int>>,
+  pub entry_1_0_dev:        Option<Symbol<extern "C" fn (*mut futhark_context, *mut *mut memblock_dev) -> c_int>>,
+  pub entry_1_0_p_f32_dev:  Option<Symbol<extern "C" fn (*mut futhark_context, *mut *mut memblock_dev, f32) -> c_int>>,
+  pub entry_1_0_p_i64_dev:  Option<Symbol<extern "C" fn (*mut futhark_context, *mut *mut memblock_dev, i64) -> c_int>>,
   pub entry_1_1_dev:        Option<Symbol<extern "C" fn (*mut futhark_context, *mut *mut memblock_dev, *mut memblock_dev) -> c_int>>,
-  pub entry_2_1_dev:        Option<Symbol<extern "C" fn (*mut futhark_context, *mut *mut memblock_dev, *mut memblock_dev, *mut memblock_dev) -> c_int>>,
-  pub entry_3_1_dev:        Option<Symbol<extern "C" fn (*mut futhark_context, *mut *mut memblock_dev, *mut memblock_dev, *mut memblock_dev, *mut memblock_dev) -> c_int>>,
-  pub entry_4_1_dev:        Option<Symbol<extern "C" fn (*mut futhark_context, *mut *mut memblock_dev, *mut memblock_dev, *mut memblock_dev, *mut memblock_dev, *mut memblock_dev) -> c_int>>,
-  pub entry: Option<(u16, u16, bool)>,
+  pub entry_1_1_p_f32_dev:  Option<Symbol<extern "C" fn (*mut futhark_context, *mut *mut memblock_dev, *mut memblock_dev, f32) -> c_int>>,
+  pub entry_1_1_p_i64_dev:  Option<Symbol<extern "C" fn (*mut futhark_context, *mut *mut memblock_dev, *mut memblock_dev, i64) -> c_int>>,
+  pub entry_1_2_dev:        Option<Symbol<extern "C" fn (*mut futhark_context, *mut *mut memblock_dev, *mut memblock_dev, *mut memblock_dev) -> c_int>>,
+  pub entry_1_3_dev:        Option<Symbol<extern "C" fn (*mut futhark_context, *mut *mut memblock_dev, *mut memblock_dev, *mut memblock_dev, *mut memblock_dev) -> c_int>>,
+  pub entry_1_4_dev:        Option<Symbol<extern "C" fn (*mut futhark_context, *mut *mut memblock_dev, *mut memblock_dev, *mut memblock_dev, *mut memblock_dev, *mut memblock_dev) -> c_int>>,
+  /*pub entry: Option<(u16, u16, bool)>,*/
 }
 
 impl Drop for ObjectFFI {
@@ -172,33 +177,50 @@ impl ObjectFFI {
     // TODO
   }
 
-  pub unsafe fn load_entry_symbol(&mut self, arityin: u16, arityout: u16, dev: bool) {
-    match self.entry {
+  pub unsafe fn load_entry_symbol(&mut self, space: AbiSpace, arityin: u16, arityout: u16, param: &[AbiScalarType]) -> Option<()> {
+    /*match self.entry {
       None => {}
       Some(e) => {
         assert_eq!(e, (arityin, arityout, dev));
         return;
       }
-    }
+    }*/
     let inner = self._inner.as_ref().unwrap();
-    match (arityin, arityout, dev) {
-      (0, 1, true) => {
-        self.entry_0_1_dev = inner.get(b"futhark_entry_kernel").ok();
+    match (arityout, arityin, space) {
+      (1, 0, AbiSpace::Device) => {
+        if param == &[AbiScalarType::F32] {
+          self.entry_1_0_p_f32_dev = inner.get(b"futhark_entry_kernel").ok();
+        } else if param == &[AbiScalarType::I64] {
+          self.entry_1_0_p_i64_dev = inner.get(b"futhark_entry_kernel").ok();
+        } else if param == &[] {
+          self.entry_1_0_dev = inner.get(b"futhark_entry_kernel").ok();
+        } else {
+          unimplemented!();
+        }
       }
-      (1, 1, true) => {
-        self.entry_1_1_dev = inner.get(b"futhark_entry_kernel").ok();
+      (1, 1, AbiSpace::Device) => {
+        if param == &[AbiScalarType::F32] {
+          self.entry_1_1_p_f32_dev = inner.get(b"futhark_entry_kernel").ok();
+        } else if param == &[AbiScalarType::I64] {
+          self.entry_1_1_p_i64_dev = inner.get(b"futhark_entry_kernel").ok();
+        } else if param == &[] {
+          self.entry_1_1_dev = inner.get(b"futhark_entry_kernel").ok();
+        } else {
+          unimplemented!();
+        }
       }
-      (2, 1, true) => {
-        self.entry_2_1_dev = inner.get(b"futhark_entry_kernel").ok();
+      (1, 2, AbiSpace::Device) => {
+        self.entry_1_2_dev = inner.get(b"futhark_entry_kernel").ok();
       }
-      (3, 1, true) => {
-        self.entry_3_1_dev = inner.get(b"futhark_entry_kernel").ok();
+      (1, 3, AbiSpace::Device) => {
+        self.entry_1_3_dev = inner.get(b"futhark_entry_kernel").ok();
       }
-      (4, 1, true) => {
-        self.entry_4_1_dev = inner.get(b"futhark_entry_kernel").ok();
+      (1, 4, AbiSpace::Device) => {
+        self.entry_1_4_dev = inner.get(b"futhark_entry_kernel").ok();
       }
       _ => unimplemented!()
     }
-    self.entry = Some((arityin, arityout, dev));
+    /*self.entry = Some((arityin, arityout, dev));*/
+    Some(())
   }
 }
