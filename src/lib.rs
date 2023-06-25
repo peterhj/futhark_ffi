@@ -22,6 +22,7 @@ use std::cell::{RefCell};
 use std::collections::{BTreeMap};
 //use std::env;
 use std::ffi::{OsStr};
+use std::fmt::{Debug, Formatter, Result as FmtResult, Write as FmtWrite};
 use std::fs::{File, OpenOptions, create_dir_all};
 use std::io::{Read, Write};
 use std::marker::{PhantomData};
@@ -614,8 +615,26 @@ impl ObjectExt for Object<CudaBackend> {
   }
 }
 
+#[repr(transparent)]
 pub struct ArrayDev {
-  raw:  usize,
+  pub raw:  usize,
+}
+
+impl Debug for ArrayDev {
+  fn fmt(&self, f: &mut Formatter) -> FmtResult {
+    let ndim = self.raw & 7;
+    let mem = self.as_ptr();
+    if mem.is_null() {
+      return write!(f, "ArrayDev({} | null)", ndim);
+    }
+    unsafe {
+      let c = (&*mem).refcount as usize;
+      let dptr = (&*mem).mem_dptr as usize;
+      let size = (&*mem).mem_size as usize;
+      let tag = (&*mem).tag as usize;
+      write!(f, "ArrayDev({} | 0x{:016x} -> {{ refcount: 0x{:016x}, mem_dptr: 0x{:016x}, mem_size: 0x{:016x}, tag: 0x{:016x} }})", ndim, mem as usize, c, dptr, size, tag)
+    }
+  }
 }
 
 impl Drop for ArrayDev {
@@ -624,7 +643,7 @@ impl Drop for ArrayDev {
     if ptr.is_null() {
       return;
     }
-    match self.dec_refcount() {
+    match self._dec_refcount() {
       Some(0) => {
         // FIXME FIXME: first, unref.
         match self.raw & 7 {
@@ -649,28 +668,46 @@ impl ArrayDev {
     ArrayDev{raw}
   }
 
-  pub fn alloc_1d() -> ArrayDev {
+  pub fn new_1d() -> ArrayDev {
     assert_eq!(size_of::<array_1d_dev>(), size_of::<memblock_dev>() + 8);
     let ptr = unsafe { malloc(size_of::<array_1d_dev>()) } as *mut _;
-    ArrayDev::from_raw(ptr, 1)
+    let this = ArrayDev::from_raw(ptr, 1);
+    unsafe { this._init(); }
+    this
   }
 
-  pub fn alloc_2d() -> ArrayDev {
+  pub fn new_2d() -> ArrayDev {
     assert_eq!(size_of::<array_2d_dev>(), size_of::<memblock_dev>() + 8 * 2);
     let ptr = unsafe { malloc(size_of::<array_2d_dev>()) } as *mut _;
-    ArrayDev::from_raw(ptr, 2)
+    let this = ArrayDev::from_raw(ptr, 2);
+    unsafe { this._init(); }
+    this
   }
 
-  pub fn alloc_3d() -> ArrayDev {
+  pub fn new_3d() -> ArrayDev {
     assert_eq!(size_of::<array_3d_dev>(), size_of::<memblock_dev>() + 8 * 3);
     let ptr = unsafe { malloc(size_of::<array_3d_dev>()) } as *mut _;
-    ArrayDev::from_raw(ptr, 3)
+    let this = ArrayDev::from_raw(ptr, 3);
+    unsafe { this._init(); }
+    this
   }
 
-  pub fn alloc_4d() -> ArrayDev {
+  pub fn new_4d() -> ArrayDev {
     assert_eq!(size_of::<array_4d_dev>(), size_of::<memblock_dev>() + 8 * 4);
     let ptr = unsafe { malloc(size_of::<array_4d_dev>()) } as *mut _;
-    ArrayDev::from_raw(ptr, 4)
+    let this = ArrayDev::from_raw(ptr, 4);
+    unsafe { this._init(); }
+    this
+  }
+
+  pub unsafe fn _init(&self) {
+    let mem = self.as_ptr();
+    assert!(!mem.is_null());
+    (&mut *mem).refcount = malloc(size_of::<i32>()) as *mut i32;
+    *(&mut *mem).refcount = 1;
+    (&mut *mem).mem_dptr = 0;
+    (&mut *mem).mem_size = 0;
+    (&mut *mem).tag = null_mut();
   }
 
   /*pub fn into_raw(self) -> (*mut memblock_dev, u8) {
@@ -701,11 +738,11 @@ impl ArrayDev {
   }
 
   pub fn refcount(&self) -> Option<i32> {
+    let mem = self.as_ptr() as *const memblock_dev;
+    if mem.is_null() {
+      return None;
+    }
     unsafe {
-      let mem = self.as_ptr() as *const memblock_dev;
-      if mem.is_null() {
-        return None;
-      }
       let c = (&*mem).refcount as *const i32;
       if c.is_null() {
         return None;
@@ -714,16 +751,20 @@ impl ArrayDev {
     }
   }
 
-  pub fn dec_refcount(&self) -> Option<i32> {
+  pub fn _dec_refcount(&self) -> Option<i32> {
+    let mem = self.as_ptr();
+    if mem.is_null() {
+      return None;
+    }
+    //println!("DEBUG: ArrayDev::_dec_refcount: memptr=0x{:016x}", mem as usize);
     unsafe {
-      let mem = self.as_ptr();
-      if mem.is_null() {
-        return None;
-      }
       let c = (&*mem).refcount as *mut i32;
       if c.is_null() {
         return None;
       }
+      //println!("DEBUG: ArrayDev::_dec_refcount:   refc=0x{:016x}", c as usize);
+      //println!("DEBUG: ArrayDev::_dec_refcount:   dptr=0x{:016x}", (&*mem).mem_dptr);
+      //println!("DEBUG: ArrayDev::_dec_refcount:   size=0x{:016x}", (&*mem).mem_size);
       let prev_c = *c;
       assert!(prev_c >= 1);
       let new_c = prev_c - 1;
@@ -732,14 +773,23 @@ impl ArrayDev {
     }
   }
 
-  pub fn parts(&self) -> Option<(u64, usize)> {
+  pub fn mem_parts(&self) -> Option<(u64, usize)> {
+    let mem = self.as_ptr() as *const memblock_dev;
+    if mem.is_null() {
+      return None;
+    }
     unsafe {
-      let mem = self.as_ptr() as *const memblock_dev;
-      if mem.is_null() {
-        return None;
-      }
       let mem = &*mem;
       Some((mem.mem_dptr, mem.mem_size))
+    }
+  }
+
+  pub fn set_mem_parts(&self, dptr: u64, size: usize) {
+    let mem = self.as_ptr();
+    assert!(!mem.is_null());
+    unsafe {
+      (&mut *mem).mem_dptr = dptr;
+      (&mut *mem).mem_size = size;
     }
   }
 
