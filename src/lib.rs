@@ -535,21 +535,22 @@ impl<B: Backend> Object<B> {
 
 pub trait ObjectExt {
   type Array;
-  type RawArray;
+  //type RawArray;
 
-  fn enter_kernel(&mut self, arityin: u16, arityout: u16, param: &[AbiScalar], arg_arr: &[Self::Array], out_raw_arr: &mut [Self::RawArray]) -> Result<(), i32>;
+  fn enter_kernel(&mut self, arityin: u16, arityout: u16, param: &[AbiScalar], arg_arr: &[Self::Array], out_arr: &mut [Self::Array]) -> Result<(), i32>;
 }
 
 impl ObjectExt for Object<CudaBackend> {
   type Array = ArrayDev;
-  type RawArray = *mut memblock_dev;
+  //type RawArray = *mut memblock_dev;
 
-  fn enter_kernel(&mut self, arityin: u16, arityout: u16, param: &[AbiScalar], arg_arr: &[ArrayDev], out_raw_arr: &mut [*mut memblock_dev]) -> Result<(), i32> {
+  fn enter_kernel(&mut self, arityin: u16, arityout: u16, param: &[AbiScalar], arg_arr: &[ArrayDev], out_arr: &mut [ArrayDev]) -> Result<(), i32> {
     // FIXME FIXME
-    let out_raw_arr_buf_len = out_raw_arr.len();
-    let out_raw_arr_buf = out_raw_arr.as_mut_ptr();
+    //let out_raw_arr_buf_len = out_raw_arr.len();
+    //let out_raw_arr_buf = out_raw_arr.as_mut_ptr();
+    //assert_eq!(out_raw_arr_buf_len, arityout as usize);
+    assert_eq!(out_arr.len(), arityout as usize);
     assert_eq!(arg_arr.len(), arityin as usize);
-    assert_eq!(out_raw_arr_buf_len, arityout as usize);
     let np = param.len();
     let mut param_ty = Vec::with_capacity(np);
     for p in param.iter() {
@@ -581,29 +582,29 @@ impl ObjectExt for Object<CudaBackend> {
     let ret = match (arityout, arityin) {
       (1, 0) => {
         if &param_ty[ .. np] == &[AbiScalarType::F32] {
-          (self.ffi.entry_1_0_p_f32_dev.as_ref().unwrap())(self.ctx, out_raw_arr_buf, param[0].into_f32())
+          (self.ffi.entry_1_0_p_f32_dev.as_ref().unwrap())(self.ctx, out_arr[0]._as_mut_ptr(), param[0].into_f32())
         } else if &param_ty[ .. np] == &[AbiScalarType::I64] {
-          (self.ffi.entry_1_0_p_i64_dev.as_ref().unwrap())(self.ctx, out_raw_arr_buf, param[0].into_i64())
+          (self.ffi.entry_1_0_p_i64_dev.as_ref().unwrap())(self.ctx, out_arr[0]._as_mut_ptr(), param[0].into_i64())
         } else if &param_ty[ .. np] == &[] {
-          (self.ffi.entry_1_0_dev.as_ref().unwrap())(self.ctx, out_raw_arr_buf)
+          (self.ffi.entry_1_0_dev.as_ref().unwrap())(self.ctx, out_arr[0]._as_mut_ptr())
         } else {
           unimplemented!();
         }
       }
       (1, 1) => {
         if &param_ty[ .. np] == &[AbiScalarType::F32] {
-          (self.ffi.entry_1_1_p_f32_dev.as_ref().unwrap())(self.ctx, out_raw_arr_buf, arg_arr[0].as_ptr(), param[0].into_f32())
+          (self.ffi.entry_1_1_p_f32_dev.as_ref().unwrap())(self.ctx, out_arr[0]._as_mut_ptr(), arg_arr[0].as_ptr(), param[0].into_f32())
         } else if &param_ty[ .. np] == &[AbiScalarType::I64] {
-          (self.ffi.entry_1_1_p_i64_dev.as_ref().unwrap())(self.ctx, out_raw_arr_buf, arg_arr[0].as_ptr(), param[0].into_i64())
+          (self.ffi.entry_1_1_p_i64_dev.as_ref().unwrap())(self.ctx, out_arr[0]._as_mut_ptr(), arg_arr[0].as_ptr(), param[0].into_i64())
         } else if &param_ty[ .. np] == &[] {
-          (self.ffi.entry_1_1_dev.as_ref().unwrap())(self.ctx, out_raw_arr_buf, arg_arr[0].as_ptr())
+          (self.ffi.entry_1_1_dev.as_ref().unwrap())(self.ctx, out_arr[0]._as_mut_ptr(), arg_arr[0].as_ptr())
         } else {
           unimplemented!();
         }
       }
-      (1, 2) => (self.ffi.entry_1_2_dev.as_ref().unwrap())(self.ctx, out_raw_arr_buf, arg_arr[0].as_ptr(), arg_arr[1].as_ptr()),
-      (1, 3) => (self.ffi.entry_1_3_dev.as_ref().unwrap())(self.ctx, out_raw_arr_buf, arg_arr[0].as_ptr(), arg_arr[1].as_ptr(), arg_arr[2].as_ptr()),
-      (1, 4) => (self.ffi.entry_1_4_dev.as_ref().unwrap())(self.ctx, out_raw_arr_buf, arg_arr[0].as_ptr(), arg_arr[1].as_ptr(), arg_arr[2].as_ptr(), arg_arr[3].as_ptr()),
+      (1, 2) => (self.ffi.entry_1_2_dev.as_ref().unwrap())(self.ctx, out_arr[0]._as_mut_ptr(), arg_arr[0].as_ptr(), arg_arr[1].as_ptr()),
+      (1, 3) => (self.ffi.entry_1_3_dev.as_ref().unwrap())(self.ctx, out_arr[0]._as_mut_ptr(), arg_arr[0].as_ptr(), arg_arr[1].as_ptr(), arg_arr[2].as_ptr()),
+      (1, 4) => (self.ffi.entry_1_4_dev.as_ref().unwrap())(self.ctx, out_arr[0]._as_mut_ptr(), arg_arr[0].as_ptr(), arg_arr[1].as_ptr(), arg_arr[2].as_ptr(), arg_arr[3].as_ptr()),
       _ => {
         panic!("bug: Object::<CudaBackend>::enter_kernel: unimplemented: arityin={} arityout={} param={:?}", arityin, arityout, &param_ty);
       }
@@ -622,7 +623,7 @@ pub struct ArrayDev {
 
 impl Debug for ArrayDev {
   fn fmt(&self, f: &mut Formatter) -> FmtResult {
-    let ndim = self.raw & 7;
+    let ndim = self._ndim();
     let mem = self.as_ptr();
     if mem.is_null() {
       return write!(f, "ArrayDev({} | null)", ndim);
@@ -632,8 +633,23 @@ impl Debug for ArrayDev {
       let dptr = (&*mem).mem_dptr as usize;
       let size = (&*mem).mem_size as usize;
       let tag = (&*mem).tag as usize;
-      write!(f, "ArrayDev({} | 0x{:016x} -> {{ refcount: 0x{:016x}, mem_dptr: 0x{:016x}, mem_size: 0x{:016x}, tag: 0x{:016x} }})", ndim, mem as usize, c, dptr, size, tag)
+      write!(f, "ArrayDev({} | 0x{:016x} -> {{ refcount: 0x{:016x}, mem_dptr: 0x{:016x}, mem_size: 0x{:x}",
+          ndim, mem as usize, c, dptr, size)?;
+      if tag == 0 {
+        write!(f, ", tag: null")?;
+      } else {
+        write!(f, ", tag: 0x{:016x}", tag)?;
+      }
+      if ndim == 0 {
+        write!(f, " }})")?;
+      } else {
+        let buf = mem as *const u8;
+        let shape_buf = buf.offset(size_of::<memblock_dev>() as _) as *const i64;
+        let shape = from_raw_parts(shape_buf, ndim as usize);
+        write!(f, ", shape: {:?} }})", shape)?;
+      }
     }
+    Ok(())
   }
 }
 
@@ -646,7 +662,7 @@ impl Drop for ArrayDev {
     match self._dec_refcount() {
       Some(0) => {
         // FIXME FIXME: first, unref.
-        match self.raw & 7 {
+        match self._ndim() {
           1 | 2 | 3 | 4 => unsafe { free(ptr as *mut _) },
           _ => unreachable!()
         }
@@ -665,6 +681,12 @@ impl ArrayDev {
       1 | 2 | 3 | 4 => raw_ptr | (ndim as usize),
       _ => unreachable!()
     };
+    ArrayDev{raw}
+  }
+
+  pub fn null() -> ArrayDev {
+    let ptr: *mut memblock_dev = null_mut();
+    let raw = ptr as usize;
     ArrayDev{raw}
   }
 
@@ -733,8 +755,27 @@ impl ArrayDev {
     (self.raw & (!7)) as *mut _
   }
 
-  pub fn ndim(&self) -> u8 {
-    (self.raw & 7) as _
+  pub fn _as_mut_ptr(&mut self) -> *mut *mut memblock_dev {
+    &mut self.raw as *mut usize as *mut *mut memblock_dev
+  }
+
+  pub fn _ndim(&self) -> u8 {
+    (self.raw & 7) as u8
+  }
+
+  pub fn ndim(&self) -> Option<u8> {
+    let nd = (self.raw & 7) as u8;
+    if nd == 0 {
+      return None;
+    }
+    Some(nd)
+  }
+
+  pub fn _set_ndim(&mut self, nd: u8) {
+    assert_eq!(0, self._ndim());
+    assert!(nd > 0);
+    assert!(nd <= 7);
+    self.raw |= (nd as usize);
   }
 
   pub fn refcount(&self) -> Option<i32> {
@@ -793,29 +834,31 @@ impl ArrayDev {
     }
   }
 
-  pub unsafe fn shape(&self) -> Option<&[i64]> {
-    let ndim = self.raw & 7;
+  pub fn shape(&self) -> Option<&[i64]> {
+    let ndim = self._ndim();
     if ndim == 0 {
       return None;
     }
-    let ptr = self.as_ptr() as *const u8;
-    if ptr.is_null() {
-      return None;
+    unsafe {
+      let buf = self.as_ptr() as *const u8;
+      if buf.is_null() {
+        return None;
+      }
+      let shape_buf = buf.offset(size_of::<memblock_dev>() as _) as *const i64;
+      Some(from_raw_parts(shape_buf, ndim as usize))
     }
-    let buf = ptr.offset(size_of::<memblock_dev>() as _) as *const i64;
-    Some(from_raw_parts(buf, ndim))
   }
 
-  pub fn set_shape(&self, shape: &[i64]) {
-    let ndim = self.raw & 7;
+  pub fn set_shape(&self, new_shape: &[i64]) {
+    let ndim = self._ndim();
     assert!(ndim != 0);
-    assert_eq!(ndim, shape.len());
+    assert_eq!(ndim as usize, new_shape.len());
     unsafe {
-      let ptr = self.as_ptr() as *mut u8;
-      assert!(!ptr.is_null());
-      let buf = ptr.offset(size_of::<memblock_dev>() as _) as *mut i64;
+      let buf = self.as_ptr() as *mut u8;
+      assert!(!buf.is_null());
+      let shape_buf = buf.offset(size_of::<memblock_dev>() as _) as *mut i64;
       // FIXME FIXME: check that we can do copy_nonoverlapping.
-      copy_nonoverlapping(shape.as_ptr(), buf, ndim);
+      copy_nonoverlapping(new_shape.as_ptr(), shape_buf, ndim as usize);
     }
   }
 }

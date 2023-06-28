@@ -40,6 +40,7 @@ pub struct ObjectFFI {
   pub ctx_cfg_set_cuMemcpyAsync:            Option<Symbol<extern "C" fn (*mut futhark_context_config, *mut c_void)>>,
   pub ctx_cfg_set_cuMemcpyHtoDAsync:        Option<Symbol<extern "C" fn (*mut futhark_context_config, *mut c_void)>>,
   pub ctx_cfg_set_cuMemcpyDtoHAsync:        Option<Symbol<extern "C" fn (*mut futhark_context_config, *mut c_void)>>,
+  pub ctx_cfg_set_cuStreamSynchronize:      Option<Symbol<extern "C" fn (*mut futhark_context_config, *mut c_void)>>,
   pub ctx_cfg_set_cudaEventCreate:          Option<Symbol<extern "C" fn (*mut futhark_context_config, *mut c_void)>>,
   pub ctx_cfg_set_cudaEventDestroy:         Option<Symbol<extern "C" fn (*mut futhark_context_config, *mut c_void)>>,
   pub ctx_cfg_set_cudaEventRecord:          Option<Symbol<extern "C" fn (*mut futhark_context_config, *mut c_void)>>,
@@ -72,8 +73,6 @@ pub struct ObjectFFI {
   pub ctx_may_fail:         Option<Symbol<extern "C" fn (*mut futhark_context) -> c_int>>,
   pub ctx_sync:             Option<Symbol<extern "C" fn (*mut futhark_context) -> c_int>>,
   // TODO
-  // FIXME FIXME: how to handle polymorphic entry point signature?
-  //pub entry:  Option<Symbol<extern "C" fn () -> ()>>,
   pub entry_1_0_dev:        Option<Symbol<extern "C" fn (*mut futhark_context, *mut *mut memblock_dev) -> c_int>>,
   pub entry_1_0_p_f32_dev:  Option<Symbol<extern "C" fn (*mut futhark_context, *mut *mut memblock_dev, f32) -> c_int>>,
   pub entry_1_0_p_i64_dev:  Option<Symbol<extern "C" fn (*mut futhark_context, *mut *mut memblock_dev, i64) -> c_int>>,
@@ -143,6 +142,7 @@ impl ObjectFFI {
     self.ctx_cfg_set_cuMemcpyAsync = inner.get(b"futhark_context_config_set_cuMemcpyAsync").ok();
     self.ctx_cfg_set_cuMemcpyHtoDAsync = inner.get(b"futhark_context_config_set_cuMemcpyHtoDAsync").ok();
     self.ctx_cfg_set_cuMemcpyDtoHAsync = inner.get(b"futhark_context_config_set_cuMemcpyDtoHAsync").ok();
+    self.ctx_cfg_set_cuStreamSynchronize = inner.get(b"futhark_context_config_set_cuStreamSynchronize").ok();
     self.ctx_cfg_set_cudaEventCreate = inner.get(b"futhark_context_config_set_cudaEventCreate").ok();
     self.ctx_cfg_set_cudaEventDestroy = inner.get(b"futhark_context_config_set_cudaEventDestroy").ok();
     self.ctx_cfg_set_cudaEventRecord = inner.get(b"futhark_context_config_set_cudaEventRecord").ok();
@@ -178,13 +178,6 @@ impl ObjectFFI {
   }
 
   pub unsafe fn load_entry_symbol(&mut self, space: AbiSpace, arityin: u16, arityout: u16, param: &[AbiScalarType]) -> Option<()> {
-    /*match self.entry {
-      None => {}
-      Some(e) => {
-        assert_eq!(e, (arityin, arityout, dev));
-        return;
-      }
-    }*/
     let inner = self._inner.as_ref().unwrap();
     match (arityout, arityin, space) {
       (1, 0, AbiSpace::Device) => {
@@ -220,7 +213,6 @@ impl ObjectFFI {
       }
       _ => unimplemented!()
     }
-    /*self.entry = Some((arityin, arityout, dev));*/
     Some(())
   }
 }
