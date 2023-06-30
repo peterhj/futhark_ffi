@@ -633,8 +633,14 @@ impl Debug for ArrayDev {
       let dptr = (&*mem).mem_dptr as usize;
       let size = (&*mem).mem_size as usize;
       let tag = (&*mem).tag as usize;
-      write!(f, "ArrayDev({} | 0x{:016x} -> {{ refcount: 0x{:016x}, mem_dptr: 0x{:016x}, mem_size: 0x{:x}",
-          ndim, mem as usize, c, dptr, size)?;
+      write!(f, "ArrayDev({} | 0x{:016x} -> {{ refcount: 0x{:016x}",
+          ndim, mem as usize, c)?;
+      if c == 0 {
+      } else {
+        let cd = *(c as *const i32);
+        write!(f, " -> {}", cd)?;
+      }
+      write!(f, ", mem_dptr: 0x{:016x}, mem_size: {}", dptr, size)?;
       if tag == 0 {
         write!(f, ", tag: null")?;
       } else {
