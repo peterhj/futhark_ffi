@@ -24,9 +24,10 @@ use std::collections::{BTreeMap};
 use std::ffi::{OsStr};
 use std::fmt::{Debug, Formatter, Result as FmtResult, Write as FmtWrite};
 use std::fs::{File, OpenOptions, create_dir_all};
-use std::io::{Read, Write};
+use std::io::{Read, Write, BufReader, BufWriter, Seek, SeekFrom};
 use std::marker::{PhantomData};
 use std::mem::{size_of, swap};
+use std::os::unix::fs::{MetadataExt};
 use std::path::{Path, PathBuf};
 use std::process::{Command};
 use std::ptr::{copy_nonoverlapping, null_mut, write};
@@ -206,6 +207,8 @@ pub enum BuildError {
   Cache,
   FutharkCommand,
   Futhark(Option<i32>),
+  C,
+  H,
   /*JsonPath,
   JsonUtf8,
   JsonFromStr,
@@ -379,13 +382,169 @@ impl<B: Backend> Object<B> {
   }
 }
 
-impl Config {
-  pub fn cached_or_new_object<B: Backend>(&self, src_buf: &[u8]) -> Result<Object<B>, BuildError> {
-    let mut srchash = Blake2s::new_hash();
+#[derive(Default)]
+pub struct StageMem {
+  pub f: Option<Vec<u8>>,
+  pub c: Option<Vec<u8>>,
+  pub h: Option<Vec<u8>>,
+  pub j: Option<Vec<u8>>,
+  pub d: Option<Vec<u8>>,
+  pub manifest: Option<ObjectManifest>,
+}
+
+impl StageMem {
+  pub fn reset(&mut self) {
+    self.f = None;
+    self.c = None;
+    self.h = None;
+    self.j = None;
+    self.d = None;
+    self.manifest = None;
+  }
+}
+
+#[derive(Clone, Copy, Debug)]
+#[repr(u8)]
+pub enum StageIOErr {
+  Eof,
+  Corrupt,
+  ReadFail,
+  WriteFail,
+}
+
+pub enum StageLock {
+  N,
+  R(BufReader<File>),
+  W(BufWriter<File>),
+}
+
+impl StageLock {
+  pub fn is_none(&self) -> bool {
+    match self {
+      &StageLock::N => true,
+      _ => false
+    }
+  }
+
+  pub fn reader(&mut self) -> &mut BufReader<File> {
+    match self {
+      &mut StageLock::R(ref mut reader) => reader,
+      _ => panic!("bug")
+    }
+  }
+
+  pub fn writer(&mut self) -> &mut BufWriter<File> {
+    match self {
+      &mut StageLock::W(ref mut writer) => writer,
+      _ => panic!("bug")
+    }
+  }
+}
+
+pub struct StageFile {
+  path: PathBuf,
+  // FIXME: rwlock.
+  //lock: Option<BufWriter<File>>,
+  lock: StageLock,
+}
+
+impl StageFile {
+  pub fn new(path: PathBuf) -> StageFile {
+    StageFile{
+      path,
+      //lock: None,
+      lock: StageLock::N,
+    }
+  }
+
+  pub fn reset(&mut self) {
+    self.lock = StageLock::N;
+    let file = OpenOptions::new().read(true).write(true).create(true).truncate(true).open(&self.path).unwrap();
+    let size = file.metadata().unwrap().size();
+    assert_eq!(size, 0);
+  }
+
+  pub fn unlock(&mut self) {
+    self.lock = StageLock::N;
+  }
+
+  pub fn _read_next<R: Read>(reader: &mut R) -> Result<(u8, Vec<u8>), StageIOErr> {
+    let mut prefix_buf = [0u8; 3];
+    match reader.read(&mut prefix_buf as &mut [_]) {
+      Ok(3) => {}
+      Ok(0) => {
+        return Err(StageIOErr::Eof);
+      }
+      // FIXME
+      Ok(_) => unimplemented!(),
+      Err(_) => {
+        return Err(StageIOErr::ReadFail);
+      }
+    }
+    if !(prefix_buf[0] == b'\n' && prefix_buf[2] == b':') {
+      return Err(StageIOErr::Corrupt);
+    }
+    let mut hash_buf = Vec::with_capacity(64);
+    hash_buf.resize(64, 0);
+    reader.read_exact(&mut hash_buf as &mut [_]).map_err(|_| StageIOErr::Corrupt)?;
+    Ok((prefix_buf[1], hash_buf))
+  }
+
+  pub fn get_next(&mut self, /*src_buf: &[u8]*/) -> Result<(u8, Vec<u8>), StageIOErr> {
+    if self.lock.is_none() {
+      let mut file = OpenOptions::new().read(true).write(true).create(true).open(&self.path).unwrap();
+      let size = file.metadata().unwrap().size();
+      if size % 67 != 0 {
+        return Err(StageIOErr::Corrupt);
+      }
+      //file.seek(SeekFrom::Start(size as _)).unwrap();
+      self.lock = StageLock::R(BufReader::new(file));
+    }
+    Self::_read_next(self.lock.reader())
+  }
+
+  pub fn _write_next<W: Write>(key: u8, hx_buf: &[u8], writer: &mut W) -> Result<(), StageIOErr> {
+    /*let mut srchash = Blake2s::new_hash();
     srchash.hash_bytes(src_buf);
     let h = srchash.finalize();
     let hx = h.to_hex();
-    let stem = format!("futhark_obj_{}_{}", B::cmd_arg(), hx);
+    let hx_buf = hx.as_bytes();*/
+    assert_eq!(hx_buf.len(), 64);
+    writer.write_all(&[b'\n', key, b':']).map_err(|_| StageIOErr::WriteFail)?;
+    writer.write_all(hx_buf).map_err(|_| StageIOErr::WriteFail)?;
+    Ok(())
+  }
+
+  pub fn put_next(&mut self, key: u8, hx_buf: &[u8]) -> Result<(), StageIOErr> {
+    if self.lock.is_none() {
+      let mut file = OpenOptions::new().read(true).write(true).create(true).open(&self.path).unwrap();
+      let size = file.metadata().unwrap().size();
+      if size % 67 != 0 {
+        return Err(StageIOErr::Corrupt);
+      }
+      file.seek(SeekFrom::Start(size as _)).unwrap();
+      self.lock = StageLock::W(BufWriter::new(file));
+    }
+    Self::_write_next(key, hx_buf, self.lock.writer())
+  }
+}
+
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug)]
+#[repr(u8)]
+pub enum Stage {
+  _Top = 0,
+  Fut = 1,
+  C = 2,
+  Dylib = 3,
+}
+
+impl Config {
+  pub fn cached_or_new_object<B: Backend>(&self, stage: Stage, src_buf: &[u8]) -> Result<Option<Object<B>>, BuildError> {
+    let mut srchash = Blake2s::new_hash();
+    srchash.hash_bytes(src_buf);
+    let src_h = srchash.finalize();
+    let src_hx = src_h.to_hex();
+    let stem = format!("futhark_obj_{}_{}", B::cmd_arg(), src_hx);
     create_dir_all(&self.cachedir).ok();
     let mut f_path = self.cachedir.clone();
     f_path.push(&stem);
@@ -394,11 +553,13 @@ impl Config {
     let mut h_path = f_path.clone();
     let mut json_path = f_path.clone();
     let mut dylib_path = f_path.clone();
-    let mut hash_path = f_path.clone();
+    //let mut hash_path = f_path.clone();
+    let mut stage_path = f_path.clone();
     c_path.set_extension("c");
     h_path.set_extension("h");
     json_path.set_extension("json");
-    hash_path.set_extension("hash");
+    //hash_path.set_extension("hash");
+    stage_path.set_extension("stage");
     // FIXME FIXME: os-specific dylib path.
     match dylib_path.file_name() {
       None => panic!("bug"),
@@ -410,7 +571,7 @@ impl Config {
     //println!("DEBUG: futhark_ffi::Config::cached_or_new_object: target: {}", crate::build_env::TARGET);
     //println!("DEBUG: futhark_ffi::Config::cached_or_new_object: dylib path: {}", dylib_path.to_str().unwrap());
     //println!("DEBUG: futhark_ffi::Config::cached_or_new_object: dylib file: {}", dylib_path.file_name().unwrap().to_str().unwrap());
-    match (ObjectManifest::open_with_hash(&json_path),
+    /*match (ObjectManifest::open_with_hash(&json_path),
            OpenOptions::new().read(true).write(false).create(false).open(&dylib_path),
            OpenOptions::new().read(true).write(false).create(false).open(&hash_path))
     {
@@ -430,83 +591,193 @@ impl Config {
            &hx_buf == &hash_buf[ .. hx_buf.len()]
         {
           println!("DEBUG: futhark_ffi::Config::cached_or_new_object: load cached...");
-          return Object::open(manifest, &dylib_path).map_err(|_| BuildError::Dylib);
+          return Object::open(manifest, &dylib_path).map_err(|_| BuildError::Dylib).map(|obj| Some(obj));
         }
       }
       _ => {}
-    }
-    match OpenOptions::new().read(false).write(true).create(true).truncate(true).open(&f_path) {
-      Err(_) => return Err(BuildError::Cache),
-      Ok(mut f) => {
-        f.write_all(src_buf).unwrap();
-      }
-    }
-    match Command::new(&self.futhark)
-      //.arg(from_utf8(B::cmd_arg()).unwrap())
-      .arg(B::cmd_arg())
-      .arg("--library")
-      .arg(&f_path)
-      .status()
-    {
-      Err(_) => return Err(BuildError::FutharkCommand),
-      Ok(status) => {
-        if !status.success() {
-          return Err(BuildError::Futhark(status.code()));
+    }*/
+    let mut stage_mem = StageMem::default();
+    let mut stagefile = StageFile::new(stage_path);
+    loop {
+      match stagefile.get_next() {
+        Err(StageIOErr::Eof) => {
+          stagefile.unlock();
+          break;
         }
+        Err(_) => {
+          stage_mem.reset();
+          stagefile.reset();
+        }
+        Ok((b'f', hv)) => stage_mem.f = Some(hv),
+        Ok((b'c', hv)) => stage_mem.c = Some(hv),
+        Ok((b'h', hv)) => stage_mem.h = Some(hv),
+        Ok((b'j', hv)) => stage_mem.j = Some(hv),
+        Ok((b'd', hv)) => stage_mem.d = Some(hv),
+        Ok(_) => {}
       }
     }
-    let (manifest, json_hx) = match ObjectManifest::open_with_hash(&json_path) {
-      Err(_) => return Err(BuildError::Json),
-      Ok((m, hx)) => (m, hx)
-    };
-    if &manifest.backend != B::cmd_arg() {
-      panic!("bug");
-    }
-    match cc::Build::new()
-      // NB: We have to set `out_dir`, `target`, `host`, `debug`, and `opt_level`;
-      // normally they are read from env vars passed by cargo to the build script.
-      .out_dir(&self.cachedir)
-      .target(self.target())
-      .host(self.target())
-      .debug(false)
-      .opt_level(2)
-      .pic(true)
-      .include(&self.cachedir)
-      .include(&self.include)
-      .file(&c_path)
-      .object_prefix_hash(false)
-      .archive(false)
-      .dylib(true)
-      .silent(true)
-      //.try_compile(dylib_path.file_name().unwrap().to_str().unwrap())
-      .try_compile(&stem)
-    {
-      Err(e) => {
-        println!("WARNING: futhark_ffi::Config::cached_or_new_object: cc build error: {}", e);
-        return Err(BuildError::Cc);
+    let mut retry = false;
+    loop {
+      if stage == Stage::_Top {
+        return Ok(None);
       }
-      Ok(_) => {}
-    }
-    match OpenOptions::new().read(true).write(false).create(false).open(&dylib_path) {
-      Err(_) => return Err(BuildError::DylibPath),
-      Ok(mut dylib_f) => {
-        let mut buf = Vec::new();
-        dylib_f.read_to_end(&mut buf).unwrap();
-        let mut h = Blake2s::new_hash();
-        h.hash_bytes(&buf);
-        let h = h.finalize();
-        let hx = h.to_hex();
-        match OpenOptions::new().read(false).write(true).create(true).truncate(true).open(&hash_path) {
-          Err(_) => return Err(BuildError::DylibHash),
-          Ok(mut hash_f) => {
-            hash_f.write_all(json_hx.as_bytes()).unwrap();
-            hash_f.write_all(hx.as_bytes()).unwrap();
+      if stage >= Stage::Fut {
+        if stage_mem.f.is_none() {
+          match OpenOptions::new().read(false).write(true).create(true).truncate(true).open(&f_path) {
+            Err(_) => return Err(BuildError::Cache),
+            Ok(mut f) => {
+              f.write_all(src_buf).unwrap();
+            }
           }
+          match stagefile.put_next(b'f', src_hx.as_bytes()) {
+            Err(_) => {
+              stagefile.reset();
+              return Err(BuildError::Cache);
+            }
+            Ok(_) => {}
+          }
+          stage_mem.f = Some(src_hx.as_bytes().to_owned());
+        }
+        if src_hx.as_bytes() != stage_mem.f.as_ref().unwrap() {
+          stagefile.reset();
+          if retry {
+            return Err(BuildError::Cache);
+          }
+          retry = true;
+          continue;
         }
       }
+      if stage == Stage::Fut {
+        return Ok(None);
+      }
+      if stage >= Stage::C {
+        if stage_mem.c.is_none() || stage_mem.manifest.is_none() {
+          match Command::new(&self.futhark)
+            .arg(B::cmd_arg())
+            .arg("--library")
+            .arg(&f_path)
+            .status()
+          {
+            Err(_) => return Err(BuildError::FutharkCommand),
+            Ok(status) => {
+              if !status.success() {
+                return Err(BuildError::Futhark(status.code()));
+              }
+            }
+          }
+          let c_hx = match OpenOptions::new().read(true).write(false).create(false).open(&c_path) {
+            Err(_) => return Err(BuildError::C),
+            Ok(mut file) => {
+              let mut buf = Vec::new();
+              file.read_to_end(&mut buf).unwrap();
+              let mut h = Blake2s::new_hash();
+              h.hash_bytes(&buf);
+              let h = h.finalize();
+              h.to_hex()
+            }
+          };
+          let h_hx = match OpenOptions::new().read(true).write(false).create(false).open(&h_path) {
+            Err(_) => return Err(BuildError::H),
+            Ok(mut file) => {
+              let mut buf = Vec::new();
+              file.read_to_end(&mut buf).unwrap();
+              let mut h = Blake2s::new_hash();
+              h.hash_bytes(&buf);
+              let h = h.finalize();
+              h.to_hex()
+            }
+          };
+          let (manifest, json_hx) = match ObjectManifest::open_with_hash(&json_path) {
+            Err(_) => return Err(BuildError::Json),
+            Ok((m, hx)) => (m, hx)
+          };
+          if &manifest.backend != B::cmd_arg() {
+            panic!("bug");
+          }
+          match stagefile.put_next(b'c', c_hx.as_bytes()) {
+            Err(_) => {
+              stagefile.reset();
+              return Err(BuildError::Cache);
+            }
+            Ok(_) => {}
+          }
+          match stagefile.put_next(b'h', h_hx.as_bytes()) {
+            Err(_) => {
+              stagefile.reset();
+              return Err(BuildError::Cache);
+            }
+            Ok(_) => {}
+          }
+          match stagefile.put_next(b'j', json_hx.as_bytes()) {
+            Err(_) => {
+              stagefile.reset();
+              return Err(BuildError::Cache);
+            }
+            Ok(_) => {}
+          }
+          stage_mem.c = Some(c_hx.as_bytes().to_owned());
+          stage_mem.h = Some(h_hx.as_bytes().to_owned());
+          stage_mem.j = Some(json_hx.as_bytes().to_owned());
+          stage_mem.manifest = Some(manifest);
+        }
+      }
+      if stage == Stage::C {
+        return Ok(None);
+      }
+      if stage >= Stage::Dylib {
+        if stage_mem.d.is_none() {
+          match cc::Build::new()
+            // NB: We have to set `out_dir`, `target`, `host`, `debug`, and `opt_level`;
+            // normally they are read from env vars passed by cargo to the build script.
+            .out_dir(&self.cachedir)
+            .target(self.target())
+            .host(self.target())
+            .debug(false)
+            .opt_level(2)
+            .pic(true)
+            .include(&self.cachedir)
+            .include(&self.include)
+            .file(&c_path)
+            .object_prefix_hash(false)
+            .archive(false)
+            .dylib(true)
+            .silent(true)
+            //.try_compile(dylib_path.file_name().unwrap().to_str().unwrap())
+            .try_compile(&stem)
+          {
+            Err(e) => {
+              println!("WARNING: futhark_ffi::Config::cached_or_new_object: cc build error: {}", e);
+              return Err(BuildError::Cc);
+            }
+            Ok(_) => {}
+          }
+          let dylib_hx = match OpenOptions::new().read(true).write(false).create(false).open(&dylib_path) {
+            Err(_) => return Err(BuildError::DylibPath),
+            Ok(mut file) => {
+              let mut buf = Vec::new();
+              file.read_to_end(&mut buf).unwrap();
+              let mut h = Blake2s::new_hash();
+              h.hash_bytes(&buf);
+              let h = h.finalize();
+              h.to_hex()
+            }
+          };
+          match stagefile.put_next(b'd', dylib_hx.as_bytes()) {
+            Err(_) => {
+              stagefile.reset();
+              return Err(BuildError::Cache);
+            }
+            Ok(_) => {}
+          }
+          stage_mem.d = Some(dylib_hx.as_bytes().to_owned());
+          println!("DEBUG: futhark_ffi::Config::cached_or_new_object: new build done!");
+        } else {
+          println!("DEBUG: futhark_ffi::Config::cached_or_new_object: load cached...");
+        }
+      }
+      let manifest = stage_mem.manifest.unwrap();
+      return Object::open(manifest, &dylib_path).map_err(|_| BuildError::Dylib).map(|obj| Some(obj));
     }
-    println!("DEBUG: futhark_ffi::Config::cached_or_new_object: new build done!");
-    Object::open(manifest, &dylib_path).map_err(|_| BuildError::Dylib)
   }
 }
 
