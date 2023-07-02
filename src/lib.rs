@@ -443,8 +443,6 @@ impl StageLock {
 
 pub struct StageFile {
   path: PathBuf,
-  // FIXME: rwlock.
-  //lock: Option<BufWriter<File>>,
   lock: StageLock,
 }
 
@@ -452,7 +450,6 @@ impl StageFile {
   pub fn new(path: PathBuf) -> StageFile {
     StageFile{
       path,
-      //lock: None,
       lock: StageLock::N,
     }
   }
@@ -490,9 +487,12 @@ impl StageFile {
     Ok((prefix_buf[1], hash_buf))
   }
 
-  pub fn get_next(&mut self, /*src_buf: &[u8]*/) -> Result<(u8, Vec<u8>), StageIOErr> {
+  pub fn get_next(&mut self) -> Result<(u8, Vec<u8>), StageIOErr> {
     if self.lock.is_none() {
-      let mut file = OpenOptions::new().read(true).write(true).create(true).open(&self.path).unwrap();
+      let mut file = match OpenOptions::new().read(true).open(&self.path) {
+        Err(_) => return Err(StageIOErr::Eof),
+        Ok(f) => f
+      };
       let size = file.metadata().unwrap().size();
       if size % 67 != 0 {
         return Err(StageIOErr::Corrupt);
@@ -504,11 +504,6 @@ impl StageFile {
   }
 
   pub fn _write_next<W: Write>(key: u8, hx_buf: &[u8], writer: &mut W) -> Result<(), StageIOErr> {
-    /*let mut srchash = Blake2s::new_hash();
-    srchash.hash_bytes(src_buf);
-    let h = srchash.finalize();
-    let hx = h.to_hex();
-    let hx_buf = hx.as_bytes();*/
     assert_eq!(hx_buf.len(), 64);
     writer.write_all(&[b'\n', key, b':']).map_err(|_| StageIOErr::WriteFail)?;
     writer.write_all(hx_buf).map_err(|_| StageIOErr::WriteFail)?;
@@ -539,7 +534,7 @@ pub enum Stage {
 }
 
 impl Config {
-  pub fn cached_or_new_object<B: Backend>(&self, stage: Stage, src_buf: &[u8]) -> Result<Option<Object<B>>, BuildError> {
+  pub fn build<B: Backend>(&self, stage: Stage, src_buf: &[u8]) -> Result<Option<Object<B>>, BuildError> {
     let mut srchash = Blake2s::new_hash();
     srchash.hash_bytes(src_buf);
     let src_h = srchash.finalize();
@@ -568,9 +563,9 @@ impl Config {
       }
     }
     dylib_path.set_extension("so");
-    //println!("DEBUG: futhark_ffi::Config::cached_or_new_object: target: {}", crate::build_env::TARGET);
-    //println!("DEBUG: futhark_ffi::Config::cached_or_new_object: dylib path: {}", dylib_path.to_str().unwrap());
-    //println!("DEBUG: futhark_ffi::Config::cached_or_new_object: dylib file: {}", dylib_path.file_name().unwrap().to_str().unwrap());
+    //println!("DEBUG: futhark_ffi::Config::build: target: {}", crate::build_env::TARGET);
+    //println!("DEBUG: futhark_ffi::Config::build: dylib path: {}", dylib_path.to_str().unwrap());
+    //println!("DEBUG: futhark_ffi::Config::build: dylib file: {}", dylib_path.file_name().unwrap().to_str().unwrap());
     /*match (ObjectManifest::open_with_hash(&json_path),
            OpenOptions::new().read(true).write(false).create(false).open(&dylib_path),
            OpenOptions::new().read(true).write(false).create(false).open(&hash_path))
@@ -590,7 +585,7 @@ impl Config {
         if hash_buf.len() >= hx_buf.len() &&
            &hx_buf == &hash_buf[ .. hx_buf.len()]
         {
-          println!("DEBUG: futhark_ffi::Config::cached_or_new_object: load cached...");
+          println!("DEBUG: futhark_ffi::Config::build: load cached...");
           return Object::open(manifest, &dylib_path).map_err(|_| BuildError::Dylib).map(|obj| Some(obj));
         }
       }
@@ -651,7 +646,7 @@ impl Config {
         return Ok(None);
       }
       if stage >= Stage::C {
-        if stage_mem.c.is_none() || stage_mem.manifest.is_none() {
+        if stage_mem.c.is_none() {
           match Command::new(&self.futhark)
             .arg(B::cmd_arg())
             .arg("--library")
@@ -720,6 +715,29 @@ impl Config {
           stage_mem.j = Some(json_hx.as_bytes().to_owned());
           stage_mem.manifest = Some(manifest);
         }
+        if stage_mem.manifest.is_none() {
+          match ObjectManifest::open_with_hash(&json_path) {
+            Err(_) => {
+              stagefile.reset();
+              if retry {
+                return Err(BuildError::Cache);
+              }
+              retry = true;
+              continue;
+            }
+            Ok((manifest, json_hx)) => {
+              if stage_mem.j.as_ref().map(|buf| buf as &[_]) != Some(json_hx.as_bytes()) {
+                stagefile.reset();
+                if retry {
+                  return Err(BuildError::Cache);
+                }
+                retry = true;
+                continue;
+              }
+              stage_mem.manifest = Some(manifest);
+            }
+          }
+        }
       }
       if stage == Stage::C {
         return Ok(None);
@@ -746,7 +764,7 @@ impl Config {
             .try_compile(&stem)
           {
             Err(e) => {
-              println!("WARNING: futhark_ffi::Config::cached_or_new_object: cc build error: {}", e);
+              println!("WARNING: futhark_ffi::Config::build: cc build error: {}", e);
               return Err(BuildError::Cc);
             }
             Ok(_) => {}
@@ -770,13 +788,16 @@ impl Config {
             Ok(_) => {}
           }
           stage_mem.d = Some(dylib_hx.as_bytes().to_owned());
-          println!("DEBUG: futhark_ffi::Config::cached_or_new_object: new build done!");
+          println!("DEBUG: futhark_ffi::Config::build: new build done!");
         } else {
-          println!("DEBUG: futhark_ffi::Config::cached_or_new_object: load cached...");
+          println!("DEBUG: futhark_ffi::Config::build: load cached...");
         }
       }
-      let manifest = stage_mem.manifest.unwrap();
-      return Object::open(manifest, &dylib_path).map_err(|_| BuildError::Dylib).map(|obj| Some(obj));
+      if stage == Stage::Dylib {
+        let manifest = stage_mem.manifest.unwrap();
+        return Object::open(manifest, &dylib_path).map_err(|_| BuildError::Dylib).map(|obj| Some(obj));
+      }
+      unreachable!();
     }
   }
 }
