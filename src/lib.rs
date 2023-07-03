@@ -350,6 +350,7 @@ impl ObjectManifest {
 
 pub struct Object<B: Backend> {
   pub manifest: ObjectManifest,
+  // FIXME: the ffi type should be backend-dependent.
   pub ffi:  ObjectFFI,
   pub eabi: Option<Abi>,
   pub cfg:  *mut futhark_context_config,
@@ -750,7 +751,7 @@ impl Config {
             .out_dir(&self.cachedir)
             .target(self.target())
             .host(self.target())
-            .debug(false)
+            .debug(true)
             .opt_level(2)
             .pic(true)
             .include(&self.cachedir)
