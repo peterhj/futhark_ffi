@@ -16,6 +16,7 @@ pub struct ObjectFFI {
   // TODO TODO
   pub ctx_cfg_set_gpu_alloc:                Option<Symbol<extern "C" fn (*mut futhark_context_config, *mut c_void)>>,
   pub ctx_cfg_set_gpu_free:                 Option<Symbol<extern "C" fn (*mut futhark_context_config, *mut c_void)>>,
+  pub ctx_cfg_set_gpu_unify:                Option<Symbol<extern "C" fn (*mut futhark_context_config, *mut c_void)>>,
   pub ctx_cfg_set_gpu_global_failure_alloc: Option<Symbol<extern "C" fn (*mut futhark_context_config, *mut c_void)>>,
   pub ctx_cfg_set_gpu_global_failure_free:  Option<Symbol<extern "C" fn (*mut futhark_context_config, *mut c_void)>>,
   // TODO TODO
@@ -118,6 +119,7 @@ impl ObjectFFI {
     // TODO TODO
     self.ctx_cfg_set_gpu_alloc = inner.get(b"futhark_context_config_set_gpu_alloc").ok();
     self.ctx_cfg_set_gpu_free = inner.get(b"futhark_context_config_set_gpu_free").ok();
+    self.ctx_cfg_set_gpu_unify = inner.get(b"futhark_context_config_set_gpu_unify").ok();
     self.ctx_cfg_set_gpu_global_failure_alloc = inner.get(b"futhark_context_config_set_gpu_global_failure_alloc").ok();
     self.ctx_cfg_set_gpu_global_failure_free = inner.get(b"futhark_context_config_set_gpu_global_failure_free").ok();
     // TODO TODO
