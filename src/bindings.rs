@@ -16,8 +16,8 @@ pub struct ObjectFFI {
   // TODO TODO
   pub ctx_cfg_set_gpu_alloc:                Option<Symbol<extern "C" fn (*mut futhark_context_config, *mut c_void)>>,
   pub ctx_cfg_set_gpu_free:                 Option<Symbol<extern "C" fn (*mut futhark_context_config, *mut c_void)>>,
-  pub ctx_cfg_set_gpu_back_alloc:           Option<Symbol<extern "C" fn (*mut futhark_context_config, *mut c_void)>>,
-  pub ctx_cfg_set_gpu_back_free:            Option<Symbol<extern "C" fn (*mut futhark_context_config, *mut c_void)>>,
+  pub ctx_cfg_set_gpu_global_failure_alloc: Option<Symbol<extern "C" fn (*mut futhark_context_config, *mut c_void)>>,
+  pub ctx_cfg_set_gpu_global_failure_free:  Option<Symbol<extern "C" fn (*mut futhark_context_config, *mut c_void)>>,
   // TODO TODO
   pub ctx_cfg_set_cuGetErrorString:         Option<Symbol<extern "C" fn (*mut futhark_context_config, *mut c_void)>>,
   pub ctx_cfg_set_cuInit:                   Option<Symbol<extern "C" fn (*mut futhark_context_config, *mut c_void)>>,
@@ -118,8 +118,8 @@ impl ObjectFFI {
     // TODO TODO
     self.ctx_cfg_set_gpu_alloc = inner.get(b"futhark_context_config_set_gpu_alloc").ok();
     self.ctx_cfg_set_gpu_free = inner.get(b"futhark_context_config_set_gpu_free").ok();
-    self.ctx_cfg_set_gpu_back_alloc = inner.get(b"futhark_context_config_set_gpu_back_alloc").ok();
-    self.ctx_cfg_set_gpu_back_free = inner.get(b"futhark_context_config_set_gpu_back_free").ok();
+    self.ctx_cfg_set_gpu_global_failure_alloc = inner.get(b"futhark_context_config_set_gpu_global_failure_alloc").ok();
+    self.ctx_cfg_set_gpu_global_failure_free = inner.get(b"futhark_context_config_set_gpu_global_failure_free").ok();
     // TODO TODO
     self.ctx_cfg_set_cuGetErrorString = inner.get(b"futhark_context_config_set_cuGetErrorString").ok();
     self.ctx_cfg_set_cuInit = inner.get(b"futhark_context_config_set_cuInit").ok();

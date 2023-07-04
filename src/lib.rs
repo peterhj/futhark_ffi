@@ -21,7 +21,7 @@ use ryu::{Buffer as RyuBuffer};
 use std::cell::{RefCell};
 use std::collections::{BTreeMap};
 //use std::env;
-use std::ffi::{OsStr};
+use std::ffi::{CStr, OsStr};
 use std::fmt::{Debug, Formatter, Result as FmtResult, Write as FmtWrite};
 use std::fs::{File, OpenOptions, create_dir_all};
 use std::io::{Read, Write, BufReader, BufWriter, Seek, SeekFrom};
@@ -1130,6 +1130,19 @@ impl ArrayDev {
     unsafe {
       (&mut *mem).mem_dptr = dptr;
       (&mut *mem).mem_size = size;
+    }
+  }
+
+  pub fn tag(&self) -> Option<&CStr> {
+    let mem = self.as_ptr();
+    assert!(!mem.is_null());
+    unsafe {
+      let raw_tag = (&*mem).tag;
+      if raw_tag.is_null() {
+        None
+      } else {
+        Some(CStr::from_ptr(raw_tag))
+      }
     }
   }
 
