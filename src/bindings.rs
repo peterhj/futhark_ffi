@@ -1,18 +1,52 @@
 use crate::{AbiScalarType, AbiSpace};
 use crate::types::*;
 
-use libc::{c_int, c_void};
+use libc::{c_int};
 use libloading::nonsafe::{Library, Symbol};
 
-use std::ffi::{OsStr};
+use std::ffi::{OsStr, c_void};
 use std::mem::{align_of};
+
+#[derive(Default)]
+pub struct BaseObjectFFI {
+  pub ctx_cfg_new:  Option<Symbol<extern "C" fn () -> *mut futhark_context_config>>,
+  pub ctx_cfg_free: Option<Symbol<extern "C" fn (*mut futhark_context_config)>>,
+  pub ctx_new:      Option<Symbol<extern "C" fn (*mut futhark_context_config) -> *mut futhark_context>>,
+  pub ctx_free:     Option<Symbol<extern "C" fn (*mut futhark_context)>>,
+  pub ctx_may_fail: Option<Symbol<extern "C" fn (*mut futhark_context) -> c_int>>,
+  pub ctx_sync:     Option<Symbol<extern "C" fn (*mut futhark_context) -> c_int>>,
+  pub ctx_reset:    Option<Symbol<extern "C" fn (*mut futhark_context)>>,
+}
+
+pub trait ObjectFFI {
+  unsafe fn open<P: AsRef<OsStr>>(dylib_path: P) -> Result<Self, ()> where Self: Sized;
+  fn base(&self) -> &BaseObjectFFI;
+}
+
+#[derive(Default)]
+pub struct MulticoreObjectFFI {
+  pub _inner:       Option<Library>,
+  pub base: BaseObjectFFI,
+  // TODO
+}
+
+impl ObjectFFI for MulticoreObjectFFI {
+  unsafe fn open<P: AsRef<OsStr>>(dylib_path: P) -> Result<MulticoreObjectFFI, ()> {
+    unimplemented!();
+  }
+
+  fn base(&self) -> &BaseObjectFFI {
+    &self.base
+  }
+}
 
 #[allow(non_snake_case)]
 #[derive(Default)]
-pub struct ObjectFFI {
+pub struct CudaObjectFFI {
   pub _inner:       Option<Library>,
-  pub ctx_cfg_new:  Option<Symbol<extern "C" fn () -> *mut futhark_context_config>>,
-  pub ctx_cfg_free: Option<Symbol<extern "C" fn (*mut futhark_context_config)>>,
+  pub base: BaseObjectFFI,
+  //pub ctx_cfg_new:  Option<Symbol<extern "C" fn () -> *mut futhark_context_config>>,
+  //pub ctx_cfg_free: Option<Symbol<extern "C" fn (*mut futhark_context_config)>>,
   // TODO TODO
   pub ctx_cfg_set_gpu_alloc:                Option<Symbol<extern "C" fn (*mut futhark_context_config, *mut c_void)>>,
   pub ctx_cfg_set_gpu_free:                 Option<Symbol<extern "C" fn (*mut futhark_context_config, *mut c_void)>>,
@@ -59,9 +93,8 @@ pub struct ObjectFFI {
   pub ctx_cfg_set_cuModuleGetFunction:      Option<Symbol<extern "C" fn (*mut futhark_context_config, *mut c_void)>>,
   pub ctx_cfg_set_cuFuncGetAttribute:       Option<Symbol<extern "C" fn (*mut futhark_context_config, *mut c_void)>>,
   pub ctx_cfg_set_cuLaunchKernel:           Option<Symbol<extern "C" fn (*mut futhark_context_config, *mut c_void)>>,
-  pub ctx_new:              Option<Symbol<extern "C" fn (*mut futhark_context_config) -> *mut futhark_context>>,
-  pub ctx_free:             Option<Symbol<extern "C" fn (*mut futhark_context)>>,
-  pub ctx_reset:            Option<Symbol<extern "C" fn (*mut futhark_context)>>,
+  //pub ctx_new:              Option<Symbol<extern "C" fn (*mut futhark_context_config) -> *mut futhark_context>>,
+  //pub ctx_free:             Option<Symbol<extern "C" fn (*mut futhark_context)>>,
   pub ctx_set_max_block_size:       Option<Symbol<extern "C" fn (*mut futhark_context, usize)>>,
   pub ctx_set_max_grid_size:        Option<Symbol<extern "C" fn (*mut futhark_context, usize)>>,
   pub ctx_set_max_tile_size:        Option<Symbol<extern "C" fn (*mut futhark_context, usize)>>,
@@ -71,8 +104,9 @@ pub struct ObjectFFI {
   pub ctx_set_lockstep_width:       Option<Symbol<extern "C" fn (*mut futhark_context, usize)>>,
   pub ctx_set_device:       Option<Symbol<extern "C" fn (*mut futhark_context, c_int) -> c_int>>,
   pub ctx_set_stream:       Option<Symbol<extern "C" fn (*mut futhark_context, *mut c_void) -> *mut c_void>>,
-  pub ctx_may_fail:         Option<Symbol<extern "C" fn (*mut futhark_context) -> c_int>>,
-  pub ctx_sync:             Option<Symbol<extern "C" fn (*mut futhark_context) -> c_int>>,
+  //pub ctx_may_fail:         Option<Symbol<extern "C" fn (*mut futhark_context) -> c_int>>,
+  //pub ctx_sync:             Option<Symbol<extern "C" fn (*mut futhark_context) -> c_int>>,
+  //pub ctx_reset:            Option<Symbol<extern "C" fn (*mut futhark_context)>>,
   // TODO
   pub entry_1_0_dev:        Option<Symbol<extern "C" fn (*mut futhark_context, *mut *mut memblock_dev) -> c_int>>,
   pub entry_1_0_p_f32_dev:  Option<Symbol<extern "C" fn (*mut futhark_context, *mut *mut memblock_dev, f32) -> c_int>>,
@@ -86,7 +120,7 @@ pub struct ObjectFFI {
   /*pub entry: Option<(u16, u16, bool)>,*/
 }
 
-impl Drop for ObjectFFI {
+impl Drop for CudaObjectFFI {
   fn drop(&mut self) {
     let inner = self._inner.take();
     if let Some(inner) = inner {
@@ -96,9 +130,9 @@ impl Drop for ObjectFFI {
   }
 }
 
-impl ObjectFFI {
-  pub unsafe fn open<P: AsRef<OsStr>>(dylib_path: P) -> Result<ObjectFFI, ()> {
-    let mut ffi = ObjectFFI::default();
+impl ObjectFFI for CudaObjectFFI {
+  unsafe fn open<P: AsRef<OsStr>>(dylib_path: P) -> Result<CudaObjectFFI, ()> {
+    let mut ffi = CudaObjectFFI::default();
     ffi._inner = Some(match Library::new(dylib_path) {
       Err(_) => return Err(()),
       Ok(dylib) => dylib
@@ -107,6 +141,12 @@ impl ObjectFFI {
     Ok(ffi)
   }
 
+  fn base(&self) -> &BaseObjectFFI {
+    &self.base
+  }
+}
+
+impl CudaObjectFFI {
   pub unsafe fn load_symbols(&mut self) {
     // FIXME FIXME: why put these checks here? why not!
     assert_eq!(align_of::<memblock_dev>(), align_of::<array_1d_dev>());
@@ -114,8 +154,8 @@ impl ObjectFFI {
     assert_eq!(align_of::<memblock_dev>(), align_of::<array_3d_dev>());
     assert_eq!(align_of::<memblock_dev>(), align_of::<array_4d_dev>());
     let inner = self._inner.as_ref().unwrap();
-    self.ctx_cfg_new = inner.get(b"futhark_context_config_new").ok();
-    self.ctx_cfg_free = inner.get(b"futhark_context_config_free").ok();
+    self.base.ctx_cfg_new = inner.get(b"futhark_context_config_new").ok();
+    self.base.ctx_cfg_free = inner.get(b"futhark_context_config_free").ok();
     // TODO TODO
     self.ctx_cfg_set_gpu_alloc = inner.get(b"futhark_context_config_set_gpu_alloc").ok();
     self.ctx_cfg_set_gpu_free = inner.get(b"futhark_context_config_set_gpu_free").ok();
@@ -162,9 +202,8 @@ impl ObjectFFI {
     self.ctx_cfg_set_cuModuleGetFunction = inner.get(b"futhark_context_config_set_cuModuleGetFunction").ok();
     self.ctx_cfg_set_cuFuncGetAttribute = inner.get(b"futhark_context_config_set_cuFuncGetAttribute").ok();
     self.ctx_cfg_set_cuLaunchKernel = inner.get(b"futhark_context_config_set_cuLaunchKernel").ok();
-    self.ctx_new = inner.get(b"futhark_context_new").ok();
-    self.ctx_free = inner.get(b"futhark_context_free").ok();
-    self.ctx_reset = inner.get(b"futhark_context_reset").ok();
+    self.base.ctx_new = inner.get(b"futhark_context_new").ok();
+    self.base.ctx_free = inner.get(b"futhark_context_free").ok();
     self.ctx_set_max_block_size = inner.get(b"futhark_context_set_max_block_size").ok();
     self.ctx_set_max_grid_size = inner.get(b"futhark_context_set_max_grid_size").ok();
     self.ctx_set_max_tile_size = inner.get(b"futhark_context_set_max_tile_size").ok();
@@ -174,8 +213,9 @@ impl ObjectFFI {
     self.ctx_set_lockstep_width = inner.get(b"futhark_context_set_lockstep_width").ok();
     self.ctx_set_device = inner.get(b"futhark_context_set_device").ok();
     self.ctx_set_stream = inner.get(b"futhark_context_set_stream").ok();
-    self.ctx_may_fail = inner.get(b"futhark_context_may_fail").ok();
-    self.ctx_sync = inner.get(b"futhark_context_sync").ok();
+    self.base.ctx_may_fail = inner.get(b"futhark_context_may_fail").ok();
+    self.base.ctx_sync = inner.get(b"futhark_context_sync").ok();
+    self.base.ctx_reset = inner.get(b"futhark_context_reset").ok();
     // TODO
   }
 

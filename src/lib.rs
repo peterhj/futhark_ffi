@@ -6,7 +6,7 @@ extern crate ryu;
 //extern crate tempfile;
 
 use self::blake2s::{Blake2s};
-use self::bindings::{ObjectFFI};
+use self::bindings::*;
 use self::types::*;
 
 use libc::{c_void, malloc, free};
@@ -221,6 +221,8 @@ pub enum BuildError {
 }
 
 pub trait Backend {
+  type FFI: ObjectFFI;
+
   // TODO
   //fn cmd_arg() -> &'static [u8];
   fn cmd_arg() -> &'static str;
@@ -229,6 +231,8 @@ pub trait Backend {
 pub enum MulticoreBackend {}
 
 impl Backend for MulticoreBackend {
+  type FFI = MulticoreObjectFFI;
+
   fn cmd_arg() -> &'static str {
     "multicore"
   }
@@ -237,6 +241,8 @@ impl Backend for MulticoreBackend {
 pub enum CudaBackend {}
 
 impl Backend for CudaBackend {
+  type FFI = CudaObjectFFI;
+
   fn cmd_arg() -> &'static str {
     "cuda"
   }
@@ -351,7 +357,7 @@ impl ObjectManifest {
 pub struct Object<B: Backend> {
   pub manifest: ObjectManifest,
   // FIXME: the ffi type should be backend-dependent.
-  pub ffi:  ObjectFFI,
+  pub ffi:  <B as Backend>::FFI,
   pub eabi: Option<Abi>,
   pub cfg:  *mut futhark_context_config,
   pub ctx:  *mut futhark_context,
@@ -361,17 +367,17 @@ pub struct Object<B: Backend> {
 impl<B: Backend> Drop for Object<B> {
   fn drop(&mut self) {
     if !self.ctx.is_null() {
-      (self.ffi.ctx_free.as_ref().unwrap())(self.ctx);
+      (self.ffi.base().ctx_free.as_ref().unwrap())(self.ctx);
     }
     if !self.cfg.is_null() {
-      (self.ffi.ctx_cfg_free.as_ref().unwrap())(self.cfg);
+      (self.ffi.base().ctx_cfg_free.as_ref().unwrap())(self.cfg);
     }
   }
 }
 
 impl<B: Backend> Object<B> {
   pub fn open<P: AsRef<OsStr>>(manifest: ObjectManifest, dylib_path: P) -> Result<Object<B>, ()> {
-    let ffi = unsafe { ObjectFFI::open(dylib_path).map_err(|_| ())? };
+    let ffi = unsafe { <<B as Backend>::FFI as ObjectFFI>::open(dylib_path).map_err(|_| ())? };
     Ok(Object{
       manifest,
       ffi,
@@ -808,21 +814,29 @@ impl<B: Backend> Object<B> {
     unimplemented!();
   }*/
 
-  pub fn reset(&self, ) {
-    (self.ffi.ctx_reset.as_ref().unwrap())(self.ctx);
+  pub fn new_config(&mut self) {
+    self.cfg = (self.ffi.base().ctx_cfg_new.as_ref().unwrap())();
+  }
+
+  pub fn new_context(&mut self) {
+    self.ctx = (self.ffi.base().ctx_new.as_ref().unwrap())(self.cfg);
   }
 
   pub fn may_fail(&self) -> bool {
-    let ret = (self.ffi.ctx_may_fail.as_ref().unwrap())(self.ctx);
+    let ret = (self.ffi.base().ctx_may_fail.as_ref().unwrap())(self.ctx);
     ret != 0
   }
 
   pub fn sync(&self) -> Result<(), i32> {
-    let ret = (self.ffi.ctx_sync.as_ref().unwrap())(self.ctx);
+    let ret = (self.ffi.base().ctx_sync.as_ref().unwrap())(self.ctx);
     if ret != FUTHARK_SUCCESS {
       return Err(ret);
     }
     Ok(())
+  }
+
+  pub fn reset(&self, ) {
+    (self.ffi.base().ctx_reset.as_ref().unwrap())(self.ctx);
   }
 }
 
