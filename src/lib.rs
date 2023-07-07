@@ -3,7 +3,6 @@ extern crate libc;
 extern crate libloading;
 extern crate rustc_serialize;
 extern crate ryu;
-//extern crate tempfile;
 
 use self::blake2s::{Blake2s};
 use self::bindings::*;
@@ -15,17 +14,13 @@ use rustc_serialize::{Decodable};
 use rustc_serialize::hex::{ToHex};
 use rustc_serialize::json::{Decoder as JsonDecoder, Json};
 use ryu::{Buffer as RyuBuffer};
-//use tempfile::{Builder as TempBuilder};
 
-//use std::alloc::{Layout, alloc, dealloc};
 use std::cell::{RefCell};
 use std::collections::{BTreeMap};
-//use std::env;
 use std::ffi::{CStr, OsStr};
 use std::fmt::{Debug, Formatter, Result as FmtResult, Write as FmtWrite};
 use std::fs::{File, OpenOptions, create_dir_all};
 use std::io::{Read, Write, BufReader, BufWriter, Seek, SeekFrom};
-use std::marker::{PhantomData};
 use std::mem::{size_of, swap};
 use std::os::unix::fs::{MetadataExt};
 use std::path::{Path, PathBuf};
@@ -38,7 +33,6 @@ pub mod bindings;
 pub mod blake2s;
 pub mod build_env;
 pub mod types;
-//pub mod temp;
 
 #[derive(Default)]
 pub struct FutharkFloatFormatter {
@@ -71,6 +65,21 @@ impl FutharkFloatFormatter {
       s.push_str(self.buf.borrow_mut().format_finite(x));
       s.push_str("f32");
     }
+  }
+}
+
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+#[repr(u8)]
+pub enum AbiArrayRepr {
+  NotSpecified,
+  Unit,
+  Flat,
+  Nd,
+}
+
+impl Default for AbiArrayRepr {
+  fn default() -> AbiArrayRepr {
+    AbiArrayRepr::NotSpecified
   }
 }
 
@@ -167,7 +176,10 @@ impl Default for AbiSpace {
 pub struct Abi {
   pub arityout: u16,
   pub arityin:  u16,
-  // FIXME: param buf len.
+  pub param_ct: u16,
+  pub arg_out:  bool,
+  pub out_repr: [AbiArrayRepr; 1],
+  pub arg_repr: [AbiArrayRepr; 5],
   pub param_ty: [AbiScalarType; 1],
   pub space:    AbiSpace,
 }
@@ -223,8 +235,6 @@ pub enum BuildError {
 pub trait Backend {
   type FFI: ObjectFFI;
 
-  // TODO
-  //fn cmd_arg() -> &'static [u8];
   fn cmd_arg() -> &'static str;
 }
 
@@ -356,12 +366,10 @@ impl ObjectManifest {
 
 pub struct Object<B: Backend> {
   pub manifest: ObjectManifest,
-  // FIXME: the ffi type should be backend-dependent.
-  pub ffi:  <B as Backend>::FFI,
   pub eabi: Option<Abi>,
   pub cfg:  *mut futhark_context_config,
   pub ctx:  *mut futhark_context,
-  _mrk: PhantomData<B>,
+  pub ffi:  <B as Backend>::FFI,
 }
 
 impl<B: Backend> Drop for Object<B> {
@@ -380,11 +388,10 @@ impl<B: Backend> Object<B> {
     let ffi = unsafe { <<B as Backend>::FFI as ObjectFFI>::open(dylib_path).map_err(|_| ())? };
     Ok(Object{
       manifest,
-      ffi,
       eabi: None,
       cfg:  null_mut(),
       ctx:  null_mut(),
-      _mrk: PhantomData,
+      ffi,
     })
   }
 }
@@ -504,7 +511,6 @@ impl StageFile {
       if size % 67 != 0 {
         return Err(StageIOErr::Corrupt);
       }
-      //file.seek(SeekFrom::Start(size as _)).unwrap();
       self.lock = StageLock::R(BufReader::new(file));
     }
     Self::_read_next(self.lock.reader())
@@ -541,7 +547,7 @@ pub enum Stage {
 }
 
 impl Config {
-  pub fn build<B: Backend>(&self, stage: Stage, src_buf: &[u8]) -> Result<Option<Object<B>>, BuildError> {
+  pub fn build<B: Backend>(&self, stage: Stage, name: Option<&str>, src_buf: &[u8]) -> Result<Option<Object<B>>, BuildError> {
     let mut srchash = Blake2s::new_hash();
     srchash.hash_bytes(src_buf);
     let src_h = srchash.finalize();
@@ -551,12 +557,14 @@ impl Config {
     let mut f_path = self.cachedir.clone();
     f_path.push(&stem);
     f_path.set_extension("fut");
+    let mut name_path = f_path.clone();
     let mut c_path = f_path.clone();
     let mut h_path = f_path.clone();
     let mut json_path = f_path.clone();
     let mut dylib_path = f_path.clone();
     //let mut hash_path = f_path.clone();
     let mut stage_path = f_path.clone();
+    name_path.set_extension("name");
     c_path.set_extension("c");
     h_path.set_extension("h");
     json_path.set_extension("json");
@@ -573,31 +581,6 @@ impl Config {
     //println!("DEBUG: futhark_ffi::Config::build: target: {}", crate::build_env::TARGET);
     //println!("DEBUG: futhark_ffi::Config::build: dylib path: {}", dylib_path.to_str().unwrap());
     //println!("DEBUG: futhark_ffi::Config::build: dylib file: {}", dylib_path.file_name().unwrap().to_str().unwrap());
-    /*match (ObjectManifest::open_with_hash(&json_path),
-           OpenOptions::new().read(true).write(false).create(false).open(&dylib_path),
-           OpenOptions::new().read(true).write(false).create(false).open(&hash_path))
-    {
-      (Ok((manifest, json_hx)), Ok(mut dylib_f), Ok(mut hash_f)) => {
-        let mut hx_buf = Vec::new();
-        hx_buf.extend_from_slice(json_hx.as_bytes());
-        let mut dylib_buf = Vec::new();
-        dylib_f.read_to_end(&mut dylib_buf).unwrap();
-        let mut dylib_h = Blake2s::new_hash();
-        dylib_h.hash_bytes(&dylib_buf);
-        let dylib_h = dylib_h.finalize();
-        let dylib_hx = dylib_h.to_hex();
-        hx_buf.extend_from_slice(dylib_hx.as_bytes());
-        let mut hash_buf = Vec::new();
-        hash_f.read_to_end(&mut hash_buf).unwrap();
-        if hash_buf.len() >= hx_buf.len() &&
-           &hx_buf == &hash_buf[ .. hx_buf.len()]
-        {
-          println!("DEBUG: futhark_ffi::Config::build: load cached...");
-          return Object::open(manifest, &dylib_path).map_err(|_| BuildError::Dylib).map(|obj| Some(obj));
-        }
-      }
-      _ => {}
-    }*/
     let mut stage_mem = StageMem::default();
     let mut stagefile = StageFile::new(stage_path);
     loop {
@@ -639,6 +622,14 @@ impl Config {
             Ok(_) => {}
           }
           stage_mem.f = Some(src_hx.as_bytes().to_owned());
+          if let Some(name) = name {
+            match OpenOptions::new().read(false).write(true).create(true).truncate(true).open(&name_path) {
+              Err(_) => return Err(BuildError::Cache),
+              Ok(mut f) => {
+                f.write_all(name.as_bytes()).unwrap();
+              }
+            }
+          }
         }
         if src_hx.as_bytes() != stage_mem.f.as_ref().unwrap() {
           stagefile.reset();
@@ -810,10 +801,6 @@ impl Config {
 }
 
 impl<B: Backend> Object<B> {
-  /*pub fn setup(&self, ) {
-    unimplemented!();
-  }*/
-
   pub fn new_config(&mut self) {
     self.cfg = (self.ffi.base().ctx_cfg_new.as_ref().unwrap())();
   }
@@ -838,24 +825,33 @@ impl<B: Backend> Object<B> {
   pub fn reset(&self, ) {
     (self.ffi.base().ctx_reset.as_ref().unwrap())(self.ctx);
   }
+
+  pub fn release(&self, ) {
+    (self.ffi.base().ctx_release.as_ref().unwrap())(self.ctx);
+  }
+}
+
+impl Object<CudaBackend> {
+  pub fn set_setup_stream(&self, raw_stream: *mut c_void) {
+    (self.ffi.ctx_cfg_set_setup_stream.as_ref().unwrap())(self.cfg, raw_stream);
+  }
+
+  pub fn set_stream(&self, raw_stream: *mut c_void) {
+    (self.ffi.ctx_set_stream.as_ref().unwrap())(self.ctx, raw_stream);
+  }
 }
 
 pub trait ObjectExt {
   type Array;
-  //type RawArray;
 
   fn enter_kernel(&mut self, arityin: u16, arityout: u16, param: &[AbiScalar], arg_arr: &[Self::Array], out_arr: &mut [Self::Array]) -> Result<(), i32>;
 }
 
 impl ObjectExt for Object<CudaBackend> {
   type Array = ArrayDev;
-  //type RawArray = *mut memblock_dev;
 
   fn enter_kernel(&mut self, arityin: u16, arityout: u16, param: &[AbiScalar], arg_arr: &[ArrayDev], out_arr: &mut [ArrayDev]) -> Result<(), i32> {
     // FIXME FIXME
-    //let out_raw_arr_buf_len = out_raw_arr.len();
-    //let out_raw_arr_buf = out_raw_arr.as_mut_ptr();
-    //assert_eq!(out_raw_arr_buf_len, arityout as usize);
     assert_eq!(out_arr.len(), arityout as usize);
     assert_eq!(arg_arr.len(), arityin as usize);
     let np = param.len();
@@ -874,6 +870,11 @@ impl ObjectExt for Object<CudaBackend> {
         let abi = Abi{
           arityout,
           arityin,
+          // FIXME FIXME
+          param_ct: param.len() as _,
+          arg_out: false,
+          out_repr: Default::default(),
+          arg_repr: Default::default(),
           param_ty: [param_ty[0]],
           space: AbiSpace::Device,
         };
@@ -974,7 +975,11 @@ impl Drop for ArrayDev {
     }
     match self._dec_refcount() {
       Some(0) => {
-        // FIXME FIXME: first, unref.
+        unsafe {
+          let refc_ptr = (&*ptr).refcount;
+          assert!(!refc_ptr.is_null());
+          free(refc_ptr as *mut _);
+        }
         match self._ndim() {
           1 | 2 | 3 | 4 => unsafe { free(ptr as *mut _) },
           _ => unreachable!()
@@ -1044,14 +1049,6 @@ impl ArrayDev {
     (&mut *mem).mem_size = 0;
     (&mut *mem).tag = null_mut();
   }
-
-  /*pub fn into_raw(self) -> (*mut memblock_dev, u8) {
-    // FIXME: this still drops b/c raw is Copy.
-    let ArrayDev{raw} = self;
-    let ptr = (raw & (!7)) as *mut _;
-    let ndim = (raw & 7) as _;
-    (ptr, ndim)
-  }*/
 
   pub fn take_ptr(&mut self) -> *mut memblock_dev {
     let mask = (self.raw & 7);

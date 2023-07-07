@@ -1,7 +1,7 @@
 use crate::{AbiScalarType, AbiSpace};
 use crate::types::*;
 
-use libc::{c_int};
+use libc::{c_char, c_int};
 use libloading::nonsafe::{Library, Symbol};
 
 use std::ffi::{OsStr, c_void};
@@ -16,6 +16,7 @@ pub struct BaseObjectFFI {
   pub ctx_may_fail: Option<Symbol<extern "C" fn (*mut futhark_context) -> c_int>>,
   pub ctx_sync:     Option<Symbol<extern "C" fn (*mut futhark_context) -> c_int>>,
   pub ctx_reset:    Option<Symbol<extern "C" fn (*mut futhark_context)>>,
+  pub ctx_release:  Option<Symbol<extern "C" fn (*mut futhark_context)>>,
 }
 
 pub trait ObjectFFI {
@@ -48,6 +49,7 @@ pub struct CudaObjectFFI {
   //pub ctx_cfg_new:  Option<Symbol<extern "C" fn () -> *mut futhark_context_config>>,
   //pub ctx_cfg_free: Option<Symbol<extern "C" fn (*mut futhark_context_config)>>,
   // TODO TODO
+  pub ctx_cfg_set_setup_stream:             Option<Symbol<extern "C" fn (*mut futhark_context_config, *mut c_void)>>,
   pub ctx_cfg_set_gpu_alloc:                Option<Symbol<extern "C" fn (*mut futhark_context_config, *mut c_void)>>,
   pub ctx_cfg_set_gpu_free:                 Option<Symbol<extern "C" fn (*mut futhark_context_config, *mut c_void)>>,
   pub ctx_cfg_set_gpu_unify:                Option<Symbol<extern "C" fn (*mut futhark_context_config, *mut c_void)>>,
@@ -95,6 +97,7 @@ pub struct CudaObjectFFI {
   pub ctx_cfg_set_cuLaunchKernel:           Option<Symbol<extern "C" fn (*mut futhark_context_config, *mut c_void)>>,
   //pub ctx_new:              Option<Symbol<extern "C" fn (*mut futhark_context_config) -> *mut futhark_context>>,
   //pub ctx_free:             Option<Symbol<extern "C" fn (*mut futhark_context)>>,
+  pub ctx_get_cuda_program:         Option<Symbol<extern "C" fn (*mut futhark_context) -> *const *const c_char>>,
   pub ctx_set_max_block_size:       Option<Symbol<extern "C" fn (*mut futhark_context, usize)>>,
   pub ctx_set_max_grid_size:        Option<Symbol<extern "C" fn (*mut futhark_context, usize)>>,
   pub ctx_set_max_tile_size:        Option<Symbol<extern "C" fn (*mut futhark_context, usize)>>,
@@ -157,6 +160,7 @@ impl CudaObjectFFI {
     self.base.ctx_cfg_new = inner.get(b"futhark_context_config_new").ok();
     self.base.ctx_cfg_free = inner.get(b"futhark_context_config_free").ok();
     // TODO TODO
+    self.ctx_cfg_set_setup_stream = inner.get(b"futhark_context_config_set_setup_stream").ok();
     self.ctx_cfg_set_gpu_alloc = inner.get(b"futhark_context_config_set_gpu_alloc").ok();
     self.ctx_cfg_set_gpu_free = inner.get(b"futhark_context_config_set_gpu_free").ok();
     self.ctx_cfg_set_gpu_unify = inner.get(b"futhark_context_config_set_gpu_unify").ok();
@@ -216,6 +220,7 @@ impl CudaObjectFFI {
     self.base.ctx_may_fail = inner.get(b"futhark_context_may_fail").ok();
     self.base.ctx_sync = inner.get(b"futhark_context_sync").ok();
     self.base.ctx_reset = inner.get(b"futhark_context_reset").ok();
+    self.base.ctx_release = inner.get(b"futhark_context_release").ok();
     // TODO
   }
 
