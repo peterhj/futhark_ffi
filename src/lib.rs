@@ -8,7 +8,7 @@ use self::blake2s::{Blake2s};
 use self::bindings::*;
 use self::types::*;
 
-use libc::{c_void, malloc, free};
+use libc::{malloc, free};
 //use potato::{Blake2s};
 use rustc_serialize::{Decodable};
 use rustc_serialize::hex::{ToHex};
@@ -17,7 +17,7 @@ use ryu::{Buffer as RyuBuffer};
 
 use std::cell::{RefCell};
 use std::collections::{BTreeMap};
-use std::ffi::{CStr, OsStr};
+use std::ffi::{CStr, OsStr, c_void};
 use std::fmt::{Debug, Formatter, Result as FmtResult, Write as FmtWrite};
 use std::fs::{File, OpenOptions, create_dir_all};
 use std::io::{Read, Write, BufReader, BufWriter, Seek, SeekFrom};
@@ -70,8 +70,39 @@ impl FutharkFloatFormatter {
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 #[repr(u8)]
+pub enum AbiOutput {
+  Unspec = 0,
+  Pure,
+  ImplicitInPlace,
+  ExplicitInPlace,
+}
+
+impl Default for AbiOutput {
+  fn default() -> AbiOutput {
+    AbiOutput::Unspec
+  }
+}
+
+impl AbiOutput {
+  pub fn from_bits(x: u8) -> AbiOutput {
+    match x {
+      0 => AbiOutput::Unspec,
+      1 => AbiOutput::Pure,
+      2 => AbiOutput::ImplicitInPlace,
+      3 => AbiOutput::ExplicitInPlace,
+      _ => panic!("bug")
+    }
+  }
+
+  pub fn to_bits(self) -> u8 {
+    self as u8
+  }
+}
+
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+#[repr(u8)]
 pub enum AbiArrayRepr {
-  NotSpecified,
+  Unspec = 0,
   Unit,
   Flat,
   Nd,
@@ -79,13 +110,29 @@ pub enum AbiArrayRepr {
 
 impl Default for AbiArrayRepr {
   fn default() -> AbiArrayRepr {
-    AbiArrayRepr::NotSpecified
+    AbiArrayRepr::Unspec
+  }
+}
+
+impl AbiArrayRepr {
+  pub fn from_bits(x: u8) -> AbiArrayRepr {
+    match x {
+      0 => AbiArrayRepr::Unspec,
+      1 => AbiArrayRepr::Unit,
+      2 => AbiArrayRepr::Flat,
+      3 => AbiArrayRepr::Nd,
+      _ => panic!("bug")
+    }
+  }
+
+  pub fn to_bits(self) -> u8 {
+    self as u8
   }
 }
 
 #[derive(Clone, Copy, Debug)]
 pub enum AbiScalar {
-  Empty,
+  Unspec,
   F64(f64),
   F32(f32),
   F16(u16),
@@ -117,7 +164,7 @@ impl AbiScalar {
 
   pub fn type_(&self) -> AbiScalarType {
     match self {
-      &AbiScalar::Empty     => AbiScalarType::Empty,
+      &AbiScalar::Unspec    => AbiScalarType::Unspec,
       &AbiScalar::F64(..)   => AbiScalarType::F64,
       &AbiScalar::F32(..)   => AbiScalarType::F32,
       &AbiScalar::F16(..)   => AbiScalarType::F16,
@@ -137,7 +184,7 @@ impl AbiScalar {
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 #[repr(u8)]
 pub enum AbiScalarType {
-  Empty,
+  Unspec = 0,
   F64,
   F32,
   F16,
@@ -154,46 +201,116 @@ pub enum AbiScalarType {
 
 impl Default for AbiScalarType {
   fn default() -> AbiScalarType {
-    AbiScalarType::Empty
+    AbiScalarType::Unspec
+  }
+}
+
+impl AbiScalarType {
+  pub fn from_bits(x: u8) -> AbiScalarType {
+    match x {
+      0   => AbiScalarType::Unspec,
+      1   => AbiScalarType::F64,
+      2   => AbiScalarType::F32,
+      3   => AbiScalarType::F16,
+      4   => AbiScalarType::Bf16,
+      5   => AbiScalarType::I64,
+      6   => AbiScalarType::I32,
+      7   => AbiScalarType::I16,
+      8   => AbiScalarType::I8,
+      9   => AbiScalarType::U64,
+      10  => AbiScalarType::U32,
+      11  => AbiScalarType::U16,
+      12  => AbiScalarType::U8,
+      _   => panic!("bug")
+    }
+  }
+
+  pub fn to_bits(self) -> u8 {
+    self as u8
   }
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 #[repr(u8)]
 pub enum AbiSpace {
-  NotSpecified,
+  Unspec = 0,
   Default,
   Device,
 }
 
 impl Default for AbiSpace {
   fn default() -> AbiSpace {
-    AbiSpace::NotSpecified
+    AbiSpace::Unspec
   }
 }
 
-#[derive(Clone, Copy, PartialEq, Eq, Default, Debug)]
+#[derive(Clone, PartialEq, Eq, Default, Debug)]
 pub struct Abi {
   pub arityout: u16,
   pub arityin:  u16,
   pub param_ct: u16,
-  pub arg_out:  bool,
-  pub out_repr: [AbiArrayRepr; 1],
-  pub arg_repr: [AbiArrayRepr; 5],
-  pub param_ty: [AbiScalarType; 1],
+  //pub output:   AbiOutput,
   pub space:    AbiSpace,
+  // FIXME
+  /*pub out_repr: [AbiArrayRepr; 1],
+  pub arg_repr: [AbiArrayRepr; 5],
+  pub param_ty: [AbiScalarType; 1],*/
+  pub bits_buf: Vec<u8>,
 }
 
 impl Abi {
   pub fn num_param(&self) -> usize {
-    let mut np = 0;
+    /*let mut np = 0;
     for i in 0 .. self.param_ty.len() {
-      if self.param_ty[i] == AbiScalarType::Empty {
+      if self.param_ty[i] == AbiScalarType::Unspec {
         break;
       }
       np += 1;
     }
-    np
+    np*/
+    self.param_ct as usize
+  }
+
+  pub fn get_out_arr(&self, idx: u16) -> (AbiOutput, AbiArrayRepr, AbiScalarType) {
+    assert!(idx < self.arityout);
+    let val = self.bits_buf[idx as usize];
+    let out = AbiOutput::from_bits(val >> 6);
+    let rep = AbiArrayRepr::from_bits((val >> 4) & 3);
+    let dty = AbiScalarType::from_bits(val & 15);
+    (out, rep, dty)
+  }
+
+  pub fn set_out_arr(&mut self, idx: u16, out: AbiOutput, rep: AbiArrayRepr, dty: AbiScalarType) {
+    assert!(idx < self.arityout);
+    let val = (out.to_bits() << 6) | (rep.to_bits() << 4) | dty.to_bits();
+    self.bits_buf[idx as usize] = val;
+  }
+
+  pub fn get_arg_arr(&self, idx: u16) -> (AbiArrayRepr, AbiScalarType) {
+    assert!(idx < self.arityin);
+    let val = self.bits_buf[self.arityout as usize + idx as usize];
+    let rep = AbiArrayRepr::from_bits(val >> 4);
+    let dty = AbiScalarType::from_bits(val & 15);
+    (rep, dty)
+  }
+
+  pub fn set_arg_arr(&mut self, idx: u16, rep: AbiArrayRepr, dty: AbiScalarType) {
+    assert!(idx < self.arityin);
+    let val = (rep.to_bits() << 4) | dty.to_bits();
+    self.bits_buf[self.arityout as usize + idx as usize] = val;
+  }
+
+  pub fn get_param(&self, idx: u16) -> AbiScalarType {
+    assert!(idx < self.param_ct);
+    let val = self.bits_buf[self.arityout as usize + self.arityin as usize + idx as usize];
+    let dty = AbiScalarType::from_bits(val);
+    dty
+  }
+
+  pub fn set_param(&mut self, idx: u16, dty: AbiScalarType) {
+    assert!(idx < self.param_ct);
+    let val = dty.to_bits();
+    self.bits_buf[self.arityout as usize + self.arityin as usize + idx as usize] = val;
   }
 }
 
@@ -204,6 +321,7 @@ pub struct Config {
   pub futhark:  PathBuf,
   pub include:  PathBuf,
   pub target:   Option<String>,
+  pub verbose:  bool,
 }
 
 impl Config {
@@ -757,7 +875,7 @@ impl Config {
             .object_prefix_hash(false)
             .archive(false)
             .dylib(true)
-            .silent(true)
+            .silent(!self.verbose)
             //.try_compile(dylib_path.file_name().unwrap().to_str().unwrap())
             .try_compile(&stem)
           {
@@ -832,6 +950,10 @@ impl<B: Backend> Object<B> {
 }
 
 impl Object<CudaBackend> {
+  pub fn set_setup_device(&self, dev: i32) {
+    (self.ffi.ctx_cfg_set_setup_device.as_ref().unwrap())(self.cfg, dev);
+  }
+
   pub fn set_setup_stream(&self, raw_stream: *mut c_void) {
     (self.ffi.ctx_cfg_set_setup_stream.as_ref().unwrap())(self.cfg, raw_stream);
   }
@@ -850,7 +972,7 @@ pub trait ObjectExt {
 impl ObjectExt for Object<CudaBackend> {
   type Array = ArrayDev;
 
-  fn enter_kernel(&mut self, arityin: u16, arityout: u16, param: &[AbiScalar], arg_arr: &[ArrayDev], out_arr: &mut [ArrayDev]) -> Result<(), i32> {
+  fn enter_kernel(&mut self, arityin: u16, arityout: u16, param: &[AbiScalar], /*abi: &Abi,*/ arg_arr: &[ArrayDev], out_arr: &mut [ArrayDev]) -> Result<(), i32> {
     // FIXME FIXME
     assert_eq!(out_arr.len(), arityout as usize);
     assert_eq!(arg_arr.len(), arityin as usize);
@@ -861,30 +983,32 @@ impl ObjectExt for Object<CudaBackend> {
     }
     assert_eq!(param_ty.len(), np);
     for _ in np .. 1 {
-      param_ty.push(AbiScalarType::Empty);
+      param_ty.push(AbiScalarType::Unspec);
     }
     match self.eabi.as_ref() {
       None => {
         let ret = unsafe { self.ffi.load_entry_symbol(AbiSpace::Device, arityin, arityout, &param_ty[ .. np]) };
         assert!(ret.is_some());
-        let abi = Abi{
+        let e_abi = Abi{
           arityout,
           arityin,
           // FIXME FIXME
           param_ct: param.len() as _,
-          arg_out: false,
-          out_repr: Default::default(),
+          //output:   Default::default(),
+          space:    AbiSpace::Device,
+          /*out_repr: Default::default(),
           arg_repr: Default::default(),
-          param_ty: [param_ty[0]],
-          space: AbiSpace::Device,
+          param_ty: [param_ty[0]],*/
+          bits_buf: Vec::new(),
         };
-        self.eabi = Some(abi);
+        self.eabi = Some(e_abi);
       }
       Some(e_abi) => {
         assert_eq!(e_abi.space, AbiSpace::Device);
         assert_eq!(e_abi.arityin, arityin);
         assert_eq!(e_abi.arityout, arityout);
-        assert_eq!(&e_abi.param_ty[..], &param_ty);
+        // FIXME FIXME
+        //assert_eq!(&e_abi.param_ty[..], &param_ty);
       }
     }
     let ret = match (arityout, arityin) {

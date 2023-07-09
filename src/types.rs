@@ -3,8 +3,8 @@ use libc::{c_void, c_char, c_int};
 use std::ptr::{null, null_mut};
 
 pub const FUTHARK_SUCCESS: c_int = 0;
-pub const FUTHARK_PROGRAM_ERROR: c_int = 2;
-pub const FUTHARK_OUT_OF_MEMORY: c_int = 3;
+pub const FUTHARK_OUT_OF_MEMORY: c_int = 2;
+pub const FUTHARK_PROGRAM_ERROR: c_int = 3;
 
 #[repr(C)]
 pub struct memblock {

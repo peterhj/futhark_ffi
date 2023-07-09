@@ -49,6 +49,7 @@ pub struct CudaObjectFFI {
   //pub ctx_cfg_new:  Option<Symbol<extern "C" fn () -> *mut futhark_context_config>>,
   //pub ctx_cfg_free: Option<Symbol<extern "C" fn (*mut futhark_context_config)>>,
   // TODO TODO
+  pub ctx_cfg_set_setup_device:             Option<Symbol<extern "C" fn (*mut futhark_context_config, c_int)>>,
   pub ctx_cfg_set_setup_stream:             Option<Symbol<extern "C" fn (*mut futhark_context_config, *mut c_void)>>,
   pub ctx_cfg_set_gpu_alloc:                Option<Symbol<extern "C" fn (*mut futhark_context_config, *mut c_void)>>,
   pub ctx_cfg_set_gpu_free:                 Option<Symbol<extern "C" fn (*mut futhark_context_config, *mut c_void)>>,
@@ -160,6 +161,7 @@ impl CudaObjectFFI {
     self.base.ctx_cfg_new = inner.get(b"futhark_context_config_new").ok();
     self.base.ctx_cfg_free = inner.get(b"futhark_context_config_free").ok();
     // TODO TODO
+    self.ctx_cfg_set_setup_device = inner.get(b"futhark_context_config_set_setup_device").ok();
     self.ctx_cfg_set_setup_stream = inner.get(b"futhark_context_config_set_setup_stream").ok();
     self.ctx_cfg_set_gpu_alloc = inner.get(b"futhark_context_config_set_gpu_alloc").ok();
     self.ctx_cfg_set_gpu_free = inner.get(b"futhark_context_config_set_gpu_free").ok();
