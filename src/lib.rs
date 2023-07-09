@@ -940,6 +940,16 @@ impl<B: Backend> Object<B> {
     Ok(())
   }
 
+  pub fn error(&self) -> Option<&CStr> {
+    let err = (self.ffi.base().ctx_error.as_ref().unwrap())(self.ctx);
+    if err.is_null() {
+      return None;
+    }
+    unsafe {
+      Some(CStr::from_ptr(err))
+    }
+  }
+
   pub fn reset(&self, ) {
     (self.ffi.base().ctx_reset.as_ref().unwrap())(self.ctx);
   }

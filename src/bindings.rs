@@ -15,6 +15,7 @@ pub struct BaseObjectFFI {
   pub ctx_free:     Option<Symbol<extern "C" fn (*mut futhark_context)>>,
   pub ctx_may_fail: Option<Symbol<extern "C" fn (*mut futhark_context) -> c_int>>,
   pub ctx_sync:     Option<Symbol<extern "C" fn (*mut futhark_context) -> c_int>>,
+  pub ctx_error:    Option<Symbol<extern "C" fn (*mut futhark_context) -> *const c_char>>,
   pub ctx_reset:    Option<Symbol<extern "C" fn (*mut futhark_context)>>,
   pub ctx_release:  Option<Symbol<extern "C" fn (*mut futhark_context)>>,
 }
@@ -221,6 +222,7 @@ impl CudaObjectFFI {
     self.ctx_set_stream = inner.get(b"futhark_context_set_stream").ok();
     self.base.ctx_may_fail = inner.get(b"futhark_context_may_fail").ok();
     self.base.ctx_sync = inner.get(b"futhark_context_sync").ok();
+    self.base.ctx_error = inner.get(b"futhark_context_error").ok();
     self.base.ctx_reset = inner.get(b"futhark_context_reset").ok();
     self.base.ctx_release = inner.get(b"futhark_context_release").ok();
     // TODO
