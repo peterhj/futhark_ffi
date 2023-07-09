@@ -1193,19 +1193,21 @@ impl ArrayDev {
     &mut self.raw as *mut usize as *mut *mut memblock_dev
   }
 
-  pub fn _ndim(&self) -> u8 {
-    (self.raw & 7) as u8
+  pub fn _ndim(&self) -> i8 {
+    (self.raw & 7) as i8
   }
 
-  pub fn ndim(&self) -> Option<u8> {
-    let nd = (self.raw & 7) as u8;
+  pub fn ndim(&self) -> Option<i8> {
+    let nd = self._ndim();
+    assert!(nd >= 0);
+    assert!(nd <= 7);
     if nd == 0 {
       return None;
     }
     Some(nd)
   }
 
-  pub fn _set_ndim(&mut self, nd: u8) {
+  pub fn _set_ndim(&mut self, nd: i8) {
     assert_eq!(0, self._ndim());
     assert!(nd > 0);
     assert!(nd <= 7);
