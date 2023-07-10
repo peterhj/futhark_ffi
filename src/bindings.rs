@@ -120,6 +120,8 @@ pub struct CudaObjectFFI {
   pub entry_1_1_p_f32_dev:  Option<Symbol<extern "C" fn (*mut futhark_context, *mut *mut memblock_dev, *mut memblock_dev, f32) -> c_int>>,
   pub entry_1_1_p_i64_dev:  Option<Symbol<extern "C" fn (*mut futhark_context, *mut *mut memblock_dev, *mut memblock_dev, i64) -> c_int>>,
   pub entry_1_2_dev:        Option<Symbol<extern "C" fn (*mut futhark_context, *mut *mut memblock_dev, *mut memblock_dev, *mut memblock_dev) -> c_int>>,
+  pub entry_1_2_p_i64_i64_dev: Option<Symbol<extern "C" fn (*mut futhark_context, *mut *mut memblock_dev, *mut memblock_dev, *mut memblock_dev, i64, i64) -> c_int>>,
+  pub entry_1_2_p_i64_i64_i64_i64_dev: Option<Symbol<extern "C" fn (*mut futhark_context, *mut *mut memblock_dev, *mut memblock_dev, *mut memblock_dev, i64, i64, i64, i64) -> c_int>>,
   pub entry_1_3_dev:        Option<Symbol<extern "C" fn (*mut futhark_context, *mut *mut memblock_dev, *mut memblock_dev, *mut memblock_dev, *mut memblock_dev) -> c_int>>,
   pub entry_1_4_dev:        Option<Symbol<extern "C" fn (*mut futhark_context, *mut *mut memblock_dev, *mut memblock_dev, *mut memblock_dev, *mut memblock_dev, *mut memblock_dev) -> c_int>>,
   /*pub entry: Option<(u16, u16, bool)>,*/
@@ -254,7 +256,15 @@ impl CudaObjectFFI {
         }
       }
       (1, 2, AbiSpace::Device) => {
-        self.entry_1_2_dev = inner.get(b"futhark_entry_kernel").ok();
+        if param == &[AbiScalarType::I64, AbiScalarType::I64, AbiScalarType::I64, AbiScalarType::I64] {
+          self.entry_1_2_p_i64_i64_i64_i64_dev = inner.get(b"futhark_entry_kernel").ok();
+        } else if param == &[AbiScalarType::I64, AbiScalarType::I64] {
+          self.entry_1_2_p_i64_i64_dev = inner.get(b"futhark_entry_kernel").ok();
+        } else if param == &[] {
+          self.entry_1_2_dev = inner.get(b"futhark_entry_kernel").ok();
+        } else {
+          unimplemented!();
+        }
       }
       (1, 3, AbiSpace::Device) => {
         self.entry_1_3_dev = inner.get(b"futhark_entry_kernel").ok();

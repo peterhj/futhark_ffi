@@ -15,7 +15,7 @@ use rustc_serialize::hex::{ToHex};
 use rustc_serialize::json::{Decoder as JsonDecoder, Json};
 use ryu::{Buffer as RyuBuffer};
 
-use std::cell::{RefCell};
+use std::cell::{Cell, RefCell};
 use std::collections::{BTreeMap};
 use std::ffi::{CStr, OsStr, c_void};
 use std::fmt::{Debug, Formatter, Result as FmtResult, Write as FmtWrite};
@@ -103,8 +103,8 @@ impl AbiOutput {
 #[repr(u8)]
 pub enum AbiArrayRepr {
   Unspec = 0,
-  Unit,
-  Flat,
+  //Unit,
+  //Flat,
   Nd,
 }
 
@@ -118,9 +118,9 @@ impl AbiArrayRepr {
   pub fn from_bits(x: u8) -> AbiArrayRepr {
     match x {
       0 => AbiArrayRepr::Unspec,
-      1 => AbiArrayRepr::Unit,
-      2 => AbiArrayRepr::Flat,
-      3 => AbiArrayRepr::Nd,
+      //1 => AbiArrayRepr::Unit,
+      //2 => AbiArrayRepr::Flat,
+      1 => AbiArrayRepr::Nd,
       _ => panic!("bug")
     }
   }
@@ -248,14 +248,14 @@ impl Default for AbiSpace {
 pub struct Abi {
   pub arityout: u16,
   pub arityin:  u16,
-  pub param_ct: u16,
+  pub param_ct: Cell<u16>,
   //pub output:   AbiOutput,
   pub space:    AbiSpace,
   // FIXME
   /*pub out_repr: [AbiArrayRepr; 1],
   pub arg_repr: [AbiArrayRepr; 5],
   pub param_ty: [AbiScalarType; 1],*/
-  pub bits_buf: Vec<u8>,
+  pub bits_buf: RefCell<Vec<u8>>,
 }
 
 impl Abi {
@@ -268,12 +268,12 @@ impl Abi {
       np += 1;
     }
     np*/
-    self.param_ct as usize
+    self.param_ct.get() as usize
   }
 
   pub fn get_out_arr(&self, idx: u16) -> (AbiOutput, AbiArrayRepr, AbiScalarType) {
     assert!(idx < self.arityout);
-    let val = self.bits_buf[idx as usize];
+    let val = self.bits_buf.borrow()[idx as usize];
     let out = AbiOutput::from_bits(val >> 6);
     let rep = AbiArrayRepr::from_bits((val >> 4) & 3);
     let dty = AbiScalarType::from_bits(val & 15);
@@ -283,12 +283,18 @@ impl Abi {
   pub fn set_out_arr(&mut self, idx: u16, out: AbiOutput, rep: AbiArrayRepr, dty: AbiScalarType) {
     assert!(idx < self.arityout);
     let val = (out.to_bits() << 6) | (rep.to_bits() << 4) | dty.to_bits();
-    self.bits_buf[idx as usize] = val;
+    self.bits_buf.borrow_mut()[idx as usize] = val;
+  }
+
+  pub fn push_out_arr(&self, idx: u16, out: AbiOutput, rep: AbiArrayRepr, dty: AbiScalarType) {
+    let val = (out.to_bits() << 6) | (rep.to_bits() << 4) | dty.to_bits();
+    assert_eq!(self.bits_buf.borrow().len(), idx as usize);
+    self.bits_buf.borrow_mut().push(val);
   }
 
   pub fn get_arg_arr(&self, idx: u16) -> (AbiArrayRepr, AbiScalarType) {
     assert!(idx < self.arityin);
-    let val = self.bits_buf[self.arityout as usize + idx as usize];
+    let val = self.bits_buf.borrow_mut()[self.arityout as usize + idx as usize];
     let rep = AbiArrayRepr::from_bits(val >> 4);
     let dty = AbiScalarType::from_bits(val & 15);
     (rep, dty)
@@ -297,20 +303,34 @@ impl Abi {
   pub fn set_arg_arr(&mut self, idx: u16, rep: AbiArrayRepr, dty: AbiScalarType) {
     assert!(idx < self.arityin);
     let val = (rep.to_bits() << 4) | dty.to_bits();
-    self.bits_buf[self.arityout as usize + idx as usize] = val;
+    self.bits_buf.borrow_mut()[self.arityout as usize + idx as usize] = val;
+  }
+
+  pub fn push_arg_arr(&self, idx: u16, rep: AbiArrayRepr, dty: AbiScalarType) {
+    let val = (rep.to_bits() << 4) | dty.to_bits();
+    assert_eq!(self.bits_buf.borrow().len(), self.arityout as usize + idx as usize);
+    self.bits_buf.borrow_mut().push(val);
   }
 
   pub fn get_param(&self, idx: u16) -> AbiScalarType {
-    assert!(idx < self.param_ct);
-    let val = self.bits_buf[self.arityout as usize + self.arityin as usize + idx as usize];
+    assert!(idx < self.param_ct.get());
+    let val = self.bits_buf.borrow_mut()[self.arityout as usize + self.arityin as usize + idx as usize];
     let dty = AbiScalarType::from_bits(val);
     dty
   }
 
   pub fn set_param(&mut self, idx: u16, dty: AbiScalarType) {
-    assert!(idx < self.param_ct);
+    assert!(idx < self.param_ct.get());
     let val = dty.to_bits();
-    self.bits_buf[self.arityout as usize + self.arityin as usize + idx as usize] = val;
+    self.bits_buf.borrow_mut()[self.arityout as usize + self.arityin as usize + idx as usize] = val;
+  }
+
+  pub fn push_param(&self, idx: u16, dty: AbiScalarType) {
+    assert_eq!(idx, self.param_ct.get());
+    self.param_ct.set(idx + 1);
+    let val = dty.to_bits();
+    assert_eq!(self.bits_buf.borrow().len(), self.arityout as usize + self.arityin as usize + idx as usize);
+    self.bits_buf.borrow_mut().push(val);
   }
 }
 
@@ -976,52 +996,56 @@ impl Object<CudaBackend> {
 pub trait ObjectExt {
   type Array;
 
-  fn enter_kernel(&mut self, arityin: u16, arityout: u16, param: &[AbiScalar], arg_arr: &[Self::Array], out_arr: &mut [Self::Array]) -> Result<(), i32>;
+  fn enter_kernel(&mut self, /*arityin: u16, arityout: u16,*/ abi: &Abi, param: &[AbiScalar], arg_arr: &[Self::Array], out_arr: &mut [Self::Array]) -> Result<(), i32>;
 }
 
 impl ObjectExt for Object<CudaBackend> {
   type Array = ArrayDev;
 
-  fn enter_kernel(&mut self, arityin: u16, arityout: u16, param: &[AbiScalar], /*abi: &Abi,*/ arg_arr: &[ArrayDev], out_arr: &mut [ArrayDev]) -> Result<(), i32> {
+  fn enter_kernel(&mut self, /*arityin: u16, arityout: u16,*/ abi: &Abi, param: &[AbiScalar], arg_arr: &[ArrayDev], out_arr: &mut [ArrayDev]) -> Result<(), i32> {
     // FIXME FIXME
-    assert_eq!(out_arr.len(), arityout as usize);
-    assert_eq!(arg_arr.len(), arityin as usize);
+    assert_eq!(out_arr.len(), abi.arityout as usize);
+    assert_eq!(arg_arr.len(), abi.arityin as usize);
     let np = param.len();
     let mut param_ty = Vec::with_capacity(np);
     for p in param.iter() {
       param_ty.push(p.type_());
     }
     assert_eq!(param_ty.len(), np);
-    for _ in np .. 1 {
+    assert_eq!(abi.num_param(), np);
+    /*for _ in np .. 1 {
       param_ty.push(AbiScalarType::Unspec);
-    }
+    }*/
     match self.eabi.as_ref() {
       None => {
-        let ret = unsafe { self.ffi.load_entry_symbol(AbiSpace::Device, arityin, arityout, &param_ty[ .. np]) };
+        let ret = unsafe { self.ffi.load_entry_symbol(AbiSpace::Device, abi.arityin, abi.arityout, &param_ty[ .. np]) };
         assert!(ret.is_some());
-        let e_abi = Abi{
+        /*let e_abi = Abi{
           arityout,
           arityin,
           // FIXME FIXME
-          param_ct: param.len() as _,
+          param_ct: Cell::new(param.len() as _),
           //output:   Default::default(),
           space:    AbiSpace::Device,
           /*out_repr: Default::default(),
           arg_repr: Default::default(),
           param_ty: [param_ty[0]],*/
-          bits_buf: Vec::new(),
-        };
+          bits_buf: RefCell::new(Vec::new()),
+        };*/
+        let mut e_abi = abi.clone();
+        e_abi.space = AbiSpace::Device;
         self.eabi = Some(e_abi);
       }
       Some(e_abi) => {
         assert_eq!(e_abi.space, AbiSpace::Device);
-        assert_eq!(e_abi.arityin, arityin);
-        assert_eq!(e_abi.arityout, arityout);
+        assert_eq!(e_abi.num_param(), abi.num_param());
+        assert_eq!(e_abi.arityin, abi.arityin);
+        assert_eq!(e_abi.arityout, abi.arityout);
         // FIXME FIXME
         //assert_eq!(&e_abi.param_ty[..], &param_ty);
       }
     }
-    let ret = match (arityout, arityin) {
+    let ret = match (abi.arityout, abi.arityin) {
       (1, 0) => {
         if &param_ty[ .. np] == &[AbiScalarType::F32] {
           (self.ffi.entry_1_0_p_f32_dev.as_ref().unwrap())(self.ctx, out_arr[0]._as_mut_ptr(), param[0].into_f32())
@@ -1044,11 +1068,21 @@ impl ObjectExt for Object<CudaBackend> {
           unimplemented!();
         }
       }
-      (1, 2) => (self.ffi.entry_1_2_dev.as_ref().unwrap())(self.ctx, out_arr[0]._as_mut_ptr(), arg_arr[0].as_ptr(), arg_arr[1].as_ptr()),
+      (1, 2) => {
+        if &param_ty[ .. np] == &[AbiScalarType::I64, AbiScalarType::I64, AbiScalarType::I64, AbiScalarType::I64] {
+          (self.ffi.entry_1_2_p_i64_i64_i64_i64_dev.as_ref().unwrap())(self.ctx, out_arr[0]._as_mut_ptr(), arg_arr[0].as_ptr(), arg_arr[1].as_ptr(), param[0].into_i64(), param[1].into_i64(), param[2].into_i64(), param[3].into_i64(), )
+        } else if &param_ty[ .. np] == &[AbiScalarType::I64, AbiScalarType::I64] {
+          (self.ffi.entry_1_2_p_i64_i64_dev.as_ref().unwrap())(self.ctx, out_arr[0]._as_mut_ptr(), arg_arr[0].as_ptr(), arg_arr[1].as_ptr(), param[0].into_i64(), param[1].into_i64(), )
+        } else if &param_ty[ .. np] == &[] {
+          (self.ffi.entry_1_2_dev.as_ref().unwrap())(self.ctx, out_arr[0]._as_mut_ptr(), arg_arr[0].as_ptr(), arg_arr[1].as_ptr())
+        } else {
+          unimplemented!();
+        }
+      }
       (1, 3) => (self.ffi.entry_1_3_dev.as_ref().unwrap())(self.ctx, out_arr[0]._as_mut_ptr(), arg_arr[0].as_ptr(), arg_arr[1].as_ptr(), arg_arr[2].as_ptr()),
       (1, 4) => (self.ffi.entry_1_4_dev.as_ref().unwrap())(self.ctx, out_arr[0]._as_mut_ptr(), arg_arr[0].as_ptr(), arg_arr[1].as_ptr(), arg_arr[2].as_ptr(), arg_arr[3].as_ptr()),
       _ => {
-        panic!("bug: Object::<CudaBackend>::enter_kernel: unimplemented: arityin={} arityout={} param={:?}", arityin, arityout, &param_ty);
+        panic!("bug: Object::<CudaBackend>::enter_kernel: unimplemented: arityout={} arityin={} param={:?}", abi.arityout, abi.arityin, &param_ty);
       }
     };
     if ret != FUTHARK_SUCCESS {
