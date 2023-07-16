@@ -46,6 +46,34 @@ impl Default for memblock_dev {
 
 #[derive(Default)]
 #[repr(C)]
+pub struct array_1d {
+  pub mem: memblock,
+  pub shape: [i64; 1],
+}
+
+#[derive(Default)]
+#[repr(C)]
+pub struct array_2d {
+  pub mem: memblock,
+  pub shape: [i64; 2],
+}
+
+#[derive(Default)]
+#[repr(C)]
+pub struct array_3d {
+  pub mem: memblock,
+  pub shape: [i64; 3],
+}
+
+#[derive(Default)]
+#[repr(C)]
+pub struct array_4d {
+  pub mem: memblock,
+  pub shape: [i64; 4],
+}
+
+#[derive(Default)]
+#[repr(C)]
 pub struct array_1d_dev {
   pub mem: memblock_dev,
   pub shape: [i64; 1],

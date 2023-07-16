@@ -1,16 +1,19 @@
 use crate::{AbiScalarType, AbiSpace};
 use crate::types::*;
 
-use libc::{c_char, c_int};
+use libc::{c_char, c_int, c_void};
 use libloading::nonsafe::{Library, Symbol};
 
-use std::ffi::{OsStr, c_void};
+use std::ffi::{OsStr};
 use std::mem::{align_of};
 
 #[derive(Default)]
 pub struct BaseObjectFFI {
   pub ctx_cfg_new:  Option<Symbol<extern "C" fn () -> *mut futhark_context_config>>,
   pub ctx_cfg_free: Option<Symbol<extern "C" fn (*mut futhark_context_config)>>,
+  pub ctx_cfg_set_mem_alloc: Option<Symbol<extern "C" fn (*mut futhark_context_config, *mut c_void)>>,
+  pub ctx_cfg_set_mem_free: Option<Symbol<extern "C" fn (*mut futhark_context_config, *mut c_void)>>,
+  pub ctx_cfg_set_mem_unify: Option<Symbol<extern "C" fn (*mut futhark_context_config, *mut c_void)>>,
   pub ctx_new:      Option<Symbol<extern "C" fn (*mut futhark_context_config) -> *mut futhark_context>>,
   pub ctx_free:     Option<Symbol<extern "C" fn (*mut futhark_context)>>,
   pub ctx_may_fail: Option<Symbol<extern "C" fn (*mut futhark_context) -> c_int>>,
@@ -26,15 +29,30 @@ pub trait ObjectFFI {
 }
 
 #[derive(Default)]
-pub struct MulticoreObjectFFI {
-  pub _inner:       Option<Library>,
+pub struct SequentialObjectFFI {
+  pub lib_: Option<Library>,
   pub base: BaseObjectFFI,
-  // TODO
 }
 
-impl ObjectFFI for MulticoreObjectFFI {
-  unsafe fn open<P: AsRef<OsStr>>(dylib_path: P) -> Result<MulticoreObjectFFI, ()> {
-    unimplemented!();
+impl Drop for SequentialObjectFFI {
+  fn drop(&mut self) {
+    let inner = self.lib_.take();
+    if let Some(inner) = inner {
+      *self = Default::default();
+      drop(inner);
+    }
+  }
+}
+
+impl ObjectFFI for SequentialObjectFFI {
+  unsafe fn open<P: AsRef<OsStr>>(dylib_path: P) -> Result<SequentialObjectFFI, ()> {
+    let mut ffi = SequentialObjectFFI::default();
+    ffi.lib_ = Some(match Library::new(dylib_path) {
+      Err(_) => return Err(()),
+      Ok(dylib) => dylib
+    });
+    ffi.load_symbols();
+    Ok(ffi)
   }
 
   fn base(&self) -> &BaseObjectFFI {
@@ -42,14 +60,94 @@ impl ObjectFFI for MulticoreObjectFFI {
   }
 }
 
+impl SequentialObjectFFI {
+  pub unsafe fn load_symbols(&mut self) {
+    // FIXME FIXME: why put these checks here? why not!
+    assert_eq!(align_of::<memblock>(), align_of::<array_1d>());
+    assert_eq!(align_of::<memblock>(), align_of::<array_2d>());
+    assert_eq!(align_of::<memblock>(), align_of::<array_3d>());
+    assert_eq!(align_of::<memblock>(), align_of::<array_4d>());
+    let inner = self.lib_.as_ref().unwrap();
+    self.base.ctx_cfg_new = inner.get(b"futhark_context_config_new").ok();
+    self.base.ctx_cfg_free = inner.get(b"futhark_context_config_free").ok();
+    self.base.ctx_cfg_set_mem_alloc = inner.get(b"futhark_context_config_set_mem_alloc").ok();
+    self.base.ctx_cfg_set_mem_free = inner.get(b"futhark_context_config_set_mem_free").ok();
+    self.base.ctx_cfg_set_mem_unify = inner.get(b"futhark_context_config_set_mem_unify").ok();
+    self.base.ctx_new = inner.get(b"futhark_context_new").ok();
+    self.base.ctx_free = inner.get(b"futhark_context_free").ok();
+    self.base.ctx_may_fail = inner.get(b"futhark_context_may_fail").ok();
+    self.base.ctx_sync = inner.get(b"futhark_context_sync").ok();
+    self.base.ctx_error = inner.get(b"futhark_context_error").ok();
+    self.base.ctx_reset = inner.get(b"futhark_context_reset").ok();
+    self.base.ctx_release = inner.get(b"futhark_context_release").ok();
+    // TODO
+  }
+}
+
+#[derive(Default)]
+pub struct MulticoreObjectFFI {
+  pub lib_: Option<Library>,
+  pub base: BaseObjectFFI,
+  pub ctx_cfg_set_num_threads: Option<Symbol<extern "C" fn (*mut futhark_context_config, c_int)>>,
+  // TODO
+}
+
+impl Drop for MulticoreObjectFFI {
+  fn drop(&mut self) {
+    let inner = self.lib_.take();
+    if let Some(inner) = inner {
+      *self = Default::default();
+      drop(inner);
+    }
+  }
+}
+
+impl ObjectFFI for MulticoreObjectFFI {
+  unsafe fn open<P: AsRef<OsStr>>(dylib_path: P) -> Result<MulticoreObjectFFI, ()> {
+    let mut ffi = MulticoreObjectFFI::default();
+    ffi.lib_ = Some(match Library::new(dylib_path) {
+      Err(_) => return Err(()),
+      Ok(dylib) => dylib
+    });
+    ffi.load_symbols();
+    Ok(ffi)
+  }
+
+  fn base(&self) -> &BaseObjectFFI {
+    &self.base
+  }
+}
+
+impl MulticoreObjectFFI {
+  pub unsafe fn load_symbols(&mut self) {
+    // FIXME FIXME: why put these checks here? why not!
+    assert_eq!(align_of::<memblock>(), align_of::<array_1d>());
+    assert_eq!(align_of::<memblock>(), align_of::<array_2d>());
+    assert_eq!(align_of::<memblock>(), align_of::<array_3d>());
+    assert_eq!(align_of::<memblock>(), align_of::<array_4d>());
+    let inner = self.lib_.as_ref().unwrap();
+    self.base.ctx_cfg_new = inner.get(b"futhark_context_config_new").ok();
+    self.base.ctx_cfg_free = inner.get(b"futhark_context_config_free").ok();
+    self.base.ctx_cfg_set_mem_alloc = inner.get(b"futhark_context_config_set_mem_alloc").ok();
+    self.base.ctx_cfg_set_mem_free = inner.get(b"futhark_context_config_set_mem_free").ok();
+    self.base.ctx_cfg_set_mem_unify = inner.get(b"futhark_context_config_set_mem_unify").ok();
+    self.ctx_cfg_set_num_threads = inner.get(b"futhark_context_config_set_num_threads").ok();
+    self.base.ctx_new = inner.get(b"futhark_context_new").ok();
+    self.base.ctx_free = inner.get(b"futhark_context_free").ok();
+    self.base.ctx_may_fail = inner.get(b"futhark_context_may_fail").ok();
+    self.base.ctx_sync = inner.get(b"futhark_context_sync").ok();
+    self.base.ctx_error = inner.get(b"futhark_context_error").ok();
+    self.base.ctx_reset = inner.get(b"futhark_context_reset").ok();
+    self.base.ctx_release = inner.get(b"futhark_context_release").ok();
+    // TODO
+  }
+}
+
 #[allow(non_snake_case)]
 #[derive(Default)]
 pub struct CudaObjectFFI {
-  pub _inner:       Option<Library>,
+  pub lib_: Option<Library>,
   pub base: BaseObjectFFI,
-  //pub ctx_cfg_new:  Option<Symbol<extern "C" fn () -> *mut futhark_context_config>>,
-  //pub ctx_cfg_free: Option<Symbol<extern "C" fn (*mut futhark_context_config)>>,
-  // TODO TODO
   pub ctx_cfg_set_setup_device:             Option<Symbol<extern "C" fn (*mut futhark_context_config, c_int)>>,
   pub ctx_cfg_set_setup_stream:             Option<Symbol<extern "C" fn (*mut futhark_context_config, *mut c_void)>>,
   pub ctx_cfg_set_gpu_alloc:                Option<Symbol<extern "C" fn (*mut futhark_context_config, *mut c_void)>>,
@@ -97,8 +195,6 @@ pub struct CudaObjectFFI {
   pub ctx_cfg_set_cuModuleGetFunction:      Option<Symbol<extern "C" fn (*mut futhark_context_config, *mut c_void)>>,
   pub ctx_cfg_set_cuFuncGetAttribute:       Option<Symbol<extern "C" fn (*mut futhark_context_config, *mut c_void)>>,
   pub ctx_cfg_set_cuLaunchKernel:           Option<Symbol<extern "C" fn (*mut futhark_context_config, *mut c_void)>>,
-  //pub ctx_new:              Option<Symbol<extern "C" fn (*mut futhark_context_config) -> *mut futhark_context>>,
-  //pub ctx_free:             Option<Symbol<extern "C" fn (*mut futhark_context)>>,
   pub ctx_get_cuda_program:         Option<Symbol<extern "C" fn (*mut futhark_context) -> *const *const c_char>>,
   pub ctx_set_max_block_size:       Option<Symbol<extern "C" fn (*mut futhark_context, usize)>>,
   pub ctx_set_max_grid_size:        Option<Symbol<extern "C" fn (*mut futhark_context, usize)>>,
@@ -109,9 +205,6 @@ pub struct CudaObjectFFI {
   pub ctx_set_lockstep_width:       Option<Symbol<extern "C" fn (*mut futhark_context, usize)>>,
   pub ctx_set_device:       Option<Symbol<extern "C" fn (*mut futhark_context, c_int) -> c_int>>,
   pub ctx_set_stream:       Option<Symbol<extern "C" fn (*mut futhark_context, *mut c_void) -> *mut c_void>>,
-  //pub ctx_may_fail:         Option<Symbol<extern "C" fn (*mut futhark_context) -> c_int>>,
-  //pub ctx_sync:             Option<Symbol<extern "C" fn (*mut futhark_context) -> c_int>>,
-  //pub ctx_reset:            Option<Symbol<extern "C" fn (*mut futhark_context)>>,
   // TODO
   pub entry_1_0_dev:        Option<Symbol<extern "C" fn (*mut futhark_context, *mut *mut memblock_dev) -> c_int>>,
   pub entry_1_0_p_f32_dev:  Option<Symbol<extern "C" fn (*mut futhark_context, *mut *mut memblock_dev, f32) -> c_int>>,
@@ -129,7 +222,7 @@ pub struct CudaObjectFFI {
 
 impl Drop for CudaObjectFFI {
   fn drop(&mut self) {
-    let inner = self._inner.take();
+    let inner = self.lib_.take();
     if let Some(inner) = inner {
       *self = Default::default();
       drop(inner);
@@ -140,7 +233,7 @@ impl Drop for CudaObjectFFI {
 impl ObjectFFI for CudaObjectFFI {
   unsafe fn open<P: AsRef<OsStr>>(dylib_path: P) -> Result<CudaObjectFFI, ()> {
     let mut ffi = CudaObjectFFI::default();
-    ffi._inner = Some(match Library::new(dylib_path) {
+    ffi.lib_ = Some(match Library::new(dylib_path) {
       Err(_) => return Err(()),
       Ok(dylib) => dylib
     });
@@ -160,10 +253,12 @@ impl CudaObjectFFI {
     assert_eq!(align_of::<memblock_dev>(), align_of::<array_2d_dev>());
     assert_eq!(align_of::<memblock_dev>(), align_of::<array_3d_dev>());
     assert_eq!(align_of::<memblock_dev>(), align_of::<array_4d_dev>());
-    let inner = self._inner.as_ref().unwrap();
+    let inner = self.lib_.as_ref().unwrap();
     self.base.ctx_cfg_new = inner.get(b"futhark_context_config_new").ok();
     self.base.ctx_cfg_free = inner.get(b"futhark_context_config_free").ok();
-    // TODO TODO
+    self.base.ctx_cfg_set_mem_alloc = inner.get(b"futhark_context_config_set_mem_alloc").ok();
+    self.base.ctx_cfg_set_mem_free = inner.get(b"futhark_context_config_set_mem_free").ok();
+    self.base.ctx_cfg_set_mem_unify = inner.get(b"futhark_context_config_set_mem_unify").ok();
     self.ctx_cfg_set_setup_device = inner.get(b"futhark_context_config_set_setup_device").ok();
     self.ctx_cfg_set_setup_stream = inner.get(b"futhark_context_config_set_setup_stream").ok();
     self.ctx_cfg_set_gpu_alloc = inner.get(b"futhark_context_config_set_gpu_alloc").ok();
@@ -171,7 +266,6 @@ impl CudaObjectFFI {
     self.ctx_cfg_set_gpu_unify = inner.get(b"futhark_context_config_set_gpu_unify").ok();
     self.ctx_cfg_set_gpu_global_failure_alloc = inner.get(b"futhark_context_config_set_gpu_global_failure_alloc").ok();
     self.ctx_cfg_set_gpu_global_failure_free = inner.get(b"futhark_context_config_set_gpu_global_failure_free").ok();
-    // TODO TODO
     self.ctx_cfg_set_cuGetErrorString = inner.get(b"futhark_context_config_set_cuGetErrorString").ok();
     self.ctx_cfg_set_cuInit = inner.get(b"futhark_context_config_set_cuInit").ok();
     self.ctx_cfg_set_cuDeviceGetCount = inner.get(b"futhark_context_config_set_cuDeviceGetCount").ok();
@@ -231,7 +325,7 @@ impl CudaObjectFFI {
   }
 
   pub unsafe fn load_entry_symbol(&mut self, space: AbiSpace, arityin: u16, arityout: u16, param: &[AbiScalarType]) -> Option<()> {
-    let inner = self._inner.as_ref().unwrap();
+    let inner = self.lib_.as_ref().unwrap();
     match (arityout, arityin, space) {
       (1, 0, AbiSpace::Device) => {
         if param == &[AbiScalarType::F32] {
