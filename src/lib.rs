@@ -979,6 +979,12 @@ impl<B: Backend> Object<B> {
   }
 }
 
+impl Object<MulticoreBackend> {
+  pub fn set_num_threads(&self, n: i32) {
+    (self.ffi.ctx_cfg_set_num_threads.as_ref().unwrap())(self.cfg, n);
+  }
+}
+
 impl Object<CudaBackend> {
   pub fn set_setup_device(&self, dev: i32) {
     (self.ffi.ctx_cfg_set_setup_device.as_ref().unwrap())(self.cfg, dev);
