@@ -20,6 +20,7 @@ use std::collections::{BTreeMap};
 use std::ffi::{CStr, OsStr, c_void};
 use std::fmt::{Debug, Formatter, Result as FmtResult, Write as FmtWrite};
 use std::fs::{File, OpenOptions, create_dir_all};
+use std::hash::{Hash, Hasher};
 use std::io::{Read, Write, BufReader, BufWriter, Seek, SeekFrom};
 use std::mem::{size_of, swap};
 use std::os::unix::fs::{MetadataExt};
@@ -230,7 +231,7 @@ impl AbiScalarType {
   }
 }
 
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
 #[repr(u8)]
 pub enum AbiSpace {
   Unspec = 0,
@@ -256,6 +257,16 @@ pub struct Abi {
   pub arg_repr: [AbiArrayRepr; 5],
   pub param_ty: [AbiScalarType; 1],*/
   pub bits_buf: RefCell<Vec<u8>>,
+}
+
+impl Hash for Abi {
+  fn hash<H: Hasher>(&self, state: &mut H) {
+    self.arityout.hash(state);
+    self.arityin.hash(state);
+    self.param_ct.get().hash(state);
+    self.space.hash(state);
+    self.bits_buf.borrow().hash(state);
+  }
 }
 
 impl Abi {
