@@ -206,15 +206,17 @@ pub struct CudaObjectFFI {
   pub ctx_set_device:       Option<Symbol<extern "C" fn (*mut futhark_context, c_int) -> c_int>>,
   pub ctx_set_stream:       Option<Symbol<extern "C" fn (*mut futhark_context, *mut c_void) -> *mut c_void>>,
   // TODO
+  pub call_entry:           Option<Symbol<extern "C" fn (*mut futhark_context, *mut *mut c_void, *mut *mut c_void) -> c_int>>,
   pub entry_1_0_dev:        Option<Symbol<extern "C" fn (*mut futhark_context, *mut *mut memblock_dev) -> c_int>>,
   pub entry_1_0_p_f32_dev:  Option<Symbol<extern "C" fn (*mut futhark_context, *mut *mut memblock_dev, f32) -> c_int>>,
-  pub entry_1_0_p_i64_i64_dev: Option<Symbol<extern "C" fn (*mut futhark_context, *mut *mut memblock_dev, i64, i64) -> c_int>>,
   pub entry_1_0_p_i64_dev:  Option<Symbol<extern "C" fn (*mut futhark_context, *mut *mut memblock_dev, i64) -> c_int>>,
+  pub entry_1_0_p_i64_i64_dev: Option<Symbol<extern "C" fn (*mut futhark_context, *mut *mut memblock_dev, i64, i64) -> c_int>>,
   pub entry_1_1_dev:        Option<Symbol<extern "C" fn (*mut futhark_context, *mut *mut memblock_dev, *mut memblock_dev) -> c_int>>,
   pub entry_1_1_p_f32_dev:  Option<Symbol<extern "C" fn (*mut futhark_context, *mut *mut memblock_dev, *mut memblock_dev, f32) -> c_int>>,
   pub entry_1_1_p_i64_dev:  Option<Symbol<extern "C" fn (*mut futhark_context, *mut *mut memblock_dev, *mut memblock_dev, i64) -> c_int>>,
   pub entry_1_2_dev:        Option<Symbol<extern "C" fn (*mut futhark_context, *mut *mut memblock_dev, *mut memblock_dev, *mut memblock_dev) -> c_int>>,
   pub entry_1_2_p_i64_i64_dev: Option<Symbol<extern "C" fn (*mut futhark_context, *mut *mut memblock_dev, *mut memblock_dev, *mut memblock_dev, i64, i64) -> c_int>>,
+  pub entry_1_2_p_i64_i64_i64_dev: Option<Symbol<extern "C" fn (*mut futhark_context, *mut *mut memblock_dev, *mut memblock_dev, *mut memblock_dev, i64, i64, i64) -> c_int>>,
   pub entry_1_2_p_i64_i64_i64_i64_dev: Option<Symbol<extern "C" fn (*mut futhark_context, *mut *mut memblock_dev, *mut memblock_dev, *mut memblock_dev, i64, i64, i64, i64) -> c_int>>,
   pub entry_1_3_dev:        Option<Symbol<extern "C" fn (*mut futhark_context, *mut *mut memblock_dev, *mut memblock_dev, *mut memblock_dev, *mut memblock_dev) -> c_int>>,
   pub entry_1_4_dev:        Option<Symbol<extern "C" fn (*mut futhark_context, *mut *mut memblock_dev, *mut memblock_dev, *mut memblock_dev, *mut memblock_dev, *mut memblock_dev) -> c_int>>,
@@ -323,6 +325,7 @@ impl CudaObjectFFI {
     self.base.ctx_reset = inner.get(b"futhark_context_reset").ok();
     self.base.ctx_release = inner.get(b"futhark_context_release").ok();
     // TODO
+    self.call_entry = inner.get(b"futhark_call_kernel").ok();
   }
 
   pub unsafe fn load_entry_symbol(&mut self, space: AbiSpace, arityin: u16, arityout: u16, param: &[AbiScalarType]) -> Option<()> {
@@ -338,6 +341,8 @@ impl CudaObjectFFI {
         } else if param == &[] {
           self.entry_1_0_dev = inner.get(b"futhark_entry_kernel").ok();
         } else {
+          println!("DEBUG: CudaObjectFFI: out={} in={} space={:?}: unimplemented abi param signature: {:?}",
+              arityout, arityin, space, param);
           unimplemented!();
         }
       }
@@ -349,17 +354,23 @@ impl CudaObjectFFI {
         } else if param == &[] {
           self.entry_1_1_dev = inner.get(b"futhark_entry_kernel").ok();
         } else {
+          println!("DEBUG: CudaObjectFFI: out={} in={} space={:?}: unimplemented abi param signature: {:?}",
+              arityout, arityin, space, param);
           unimplemented!();
         }
       }
       (1, 2, AbiSpace::Device) => {
         if param == &[AbiScalarType::I64, AbiScalarType::I64, AbiScalarType::I64, AbiScalarType::I64] {
           self.entry_1_2_p_i64_i64_i64_i64_dev = inner.get(b"futhark_entry_kernel").ok();
+        } else if param == &[AbiScalarType::I64, AbiScalarType::I64, AbiScalarType::I64] {
+          self.entry_1_2_p_i64_i64_i64_dev = inner.get(b"futhark_entry_kernel").ok();
         } else if param == &[AbiScalarType::I64, AbiScalarType::I64] {
           self.entry_1_2_p_i64_i64_dev = inner.get(b"futhark_entry_kernel").ok();
         } else if param == &[] {
           self.entry_1_2_dev = inner.get(b"futhark_entry_kernel").ok();
         } else {
+          println!("DEBUG: CudaObjectFFI: out={} in={} space={:?}: unimplemented abi param signature: {:?}",
+              arityout, arityin, space, param);
           unimplemented!();
         }
       }

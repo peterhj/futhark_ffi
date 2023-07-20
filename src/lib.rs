@@ -1062,6 +1062,7 @@ impl ObjectExt for Object<CudaBackend> {
         //assert_eq!(&e_abi.param_ty[..], &param_ty);
       }
     }
+    println!("DEBUG: Object::<CudaBackend>::enter_kernel: out={} in={} param_ty={:?} param={:?}", abi.arityout, abi.arityin, &param_ty, param);
     let ret = match (abi.arityout, abi.arityin) {
       (1, 0) => {
         if &param_ty[ .. np] == &[AbiScalarType::F32] {
@@ -1090,6 +1091,8 @@ impl ObjectExt for Object<CudaBackend> {
       (1, 2) => {
         if &param_ty[ .. np] == &[AbiScalarType::I64, AbiScalarType::I64, AbiScalarType::I64, AbiScalarType::I64] {
           (self.ffi.entry_1_2_p_i64_i64_i64_i64_dev.as_ref().unwrap())(self.ctx, out_arr[0]._as_mut_ptr(), arg_arr[0].as_ptr(), arg_arr[1].as_ptr(), param[0].into_i64(), param[1].into_i64(), param[2].into_i64(), param[3].into_i64(), )
+        } else if &param_ty[ .. np] == &[AbiScalarType::I64, AbiScalarType::I64, AbiScalarType::I64] {
+          (self.ffi.entry_1_2_p_i64_i64_i64_dev.as_ref().unwrap())(self.ctx, out_arr[0]._as_mut_ptr(), arg_arr[0].as_ptr(), arg_arr[1].as_ptr(), param[0].into_i64(), param[1].into_i64(), param[2].into_i64(), )
         } else if &param_ty[ .. np] == &[AbiScalarType::I64, AbiScalarType::I64] {
           (self.ffi.entry_1_2_p_i64_i64_dev.as_ref().unwrap())(self.ctx, out_arr[0]._as_mut_ptr(), arg_arr[0].as_ptr(), arg_arr[1].as_ptr(), param[0].into_i64(), param[1].into_i64(), )
         } else if &param_ty[ .. np] == &[] {
