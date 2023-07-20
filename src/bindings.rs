@@ -208,6 +208,7 @@ pub struct CudaObjectFFI {
   // TODO
   pub entry_1_0_dev:        Option<Symbol<extern "C" fn (*mut futhark_context, *mut *mut memblock_dev) -> c_int>>,
   pub entry_1_0_p_f32_dev:  Option<Symbol<extern "C" fn (*mut futhark_context, *mut *mut memblock_dev, f32) -> c_int>>,
+  pub entry_1_0_p_i64_i64_dev: Option<Symbol<extern "C" fn (*mut futhark_context, *mut *mut memblock_dev, i64, i64) -> c_int>>,
   pub entry_1_0_p_i64_dev:  Option<Symbol<extern "C" fn (*mut futhark_context, *mut *mut memblock_dev, i64) -> c_int>>,
   pub entry_1_1_dev:        Option<Symbol<extern "C" fn (*mut futhark_context, *mut *mut memblock_dev, *mut memblock_dev) -> c_int>>,
   pub entry_1_1_p_f32_dev:  Option<Symbol<extern "C" fn (*mut futhark_context, *mut *mut memblock_dev, *mut memblock_dev, f32) -> c_int>>,
@@ -330,6 +331,8 @@ impl CudaObjectFFI {
       (1, 0, AbiSpace::Device) => {
         if param == &[AbiScalarType::F32] {
           self.entry_1_0_p_f32_dev = inner.get(b"futhark_entry_kernel").ok();
+        } else if param == &[AbiScalarType::I64, AbiScalarType::I64] {
+          self.entry_1_0_p_i64_i64_dev = inner.get(b"futhark_entry_kernel").ok();
         } else if param == &[AbiScalarType::I64] {
           self.entry_1_0_p_i64_dev = inner.get(b"futhark_entry_kernel").ok();
         } else if param == &[] {

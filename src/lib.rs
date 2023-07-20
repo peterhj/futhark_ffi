@@ -1066,6 +1066,8 @@ impl ObjectExt for Object<CudaBackend> {
       (1, 0) => {
         if &param_ty[ .. np] == &[AbiScalarType::F32] {
           (self.ffi.entry_1_0_p_f32_dev.as_ref().unwrap())(self.ctx, out_arr[0]._as_mut_ptr(), param[0].into_f32())
+        } else if &param_ty[ .. np] == &[AbiScalarType::I64, AbiScalarType::I64] {
+          (self.ffi.entry_1_0_p_i64_i64_dev.as_ref().unwrap())(self.ctx, out_arr[0]._as_mut_ptr(), param[0].into_i64(), param[1].into_i64())
         } else if &param_ty[ .. np] == &[AbiScalarType::I64] {
           (self.ffi.entry_1_0_p_i64_dev.as_ref().unwrap())(self.ctx, out_arr[0]._as_mut_ptr(), param[0].into_i64())
         } else if &param_ty[ .. np] == &[] {
