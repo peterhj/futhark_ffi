@@ -1019,7 +1019,7 @@ pub trait ObjectExt {
 impl ObjectExt for Object<CudaBackend> {
   type Array = ArrayDev;
 
-  fn enter_kernel(&mut self, /*arityin: u16, arityout: u16,*/ abi: &Abi, param: &[AbiScalar], arg_arr: &[ArrayDev], out_arr: &mut [ArrayDev]) -> Result<(), i32> {
+  fn enter_kernel(&mut self, abi: &Abi, param: &[AbiScalar], arg_arr: &[ArrayDev], out_arr: &mut [ArrayDev]) -> Result<(), i32> {
     // FIXME FIXME
     assert_eq!(out_arr.len(), abi.arityout as usize);
     assert_eq!(arg_arr.len(), abi.arityin as usize);
@@ -1062,7 +1062,21 @@ impl ObjectExt for Object<CudaBackend> {
         //assert_eq!(&e_abi.param_ty[..], &param_ty);
       }
     }
-    println!("DEBUG: Object::<CudaBackend>::enter_kernel: out={} in={} param_ty={:?} param={:?}", abi.arityout, abi.arityin, &param_ty, param);
+    println!("DEBUG: Object::<CudaBackend>::enter_kernel: manifest.out.len={}",
+        self.manifest.entry_points.kernel.outputs.len());
+    println!("DEBUG: Object::<CudaBackend>::enter_kernel: manifest.in.len={}",
+        self.manifest.entry_points.kernel.inputs.len());
+    println!("DEBUG: Object::<CudaBackend>::enter_kernel: out={} in={} param_ty={:?} param={:?}",
+        abi.arityout, abi.arityin, &param_ty, param);
+    if self.manifest.entry_points.kernel.inputs.len() != abi.arityin as usize + abi.num_param() {
+      panic!("ERROR: Object::<CudaBackend>::enter_kernel: abi mismatch v. manifest");
+    }
+    if param_ty.len() != abi.num_param() {
+      panic!("ERROR: Object::<CudaBackend>::enter_kernel: abi mismatch v. param ty buf");
+    }
+    if param.len() != abi.num_param() {
+      panic!("ERROR: Object::<CudaBackend>::enter_kernel: abi mismatch v. param buf");
+    }
     let ret = match (abi.arityout, abi.arityin) {
       (1, 0) => {
         if &param_ty[ .. np] == &[AbiScalarType::F32] {
