@@ -21,6 +21,7 @@ pub struct BaseObjectFFI {
   pub ctx_error:    Option<Symbol<extern "C" fn (*mut futhark_context) -> *const c_char>>,
   pub ctx_reset:    Option<Symbol<extern "C" fn (*mut futhark_context)>>,
   pub ctx_release:  Option<Symbol<extern "C" fn (*mut futhark_context)>>,
+  pub call_kernel:  Option<Symbol<extern "C" fn (*mut futhark_context, *mut *mut c_void, *mut *mut c_void) -> c_int>>,
 }
 
 pub trait ObjectFFI {
@@ -206,8 +207,7 @@ pub struct CudaObjectFFI {
   pub ctx_set_device:       Option<Symbol<extern "C" fn (*mut futhark_context, c_int) -> c_int>>,
   pub ctx_set_stream:       Option<Symbol<extern "C" fn (*mut futhark_context, *mut c_void) -> *mut c_void>>,
   // TODO
-  pub call_entry:           Option<Symbol<extern "C" fn (*mut futhark_context, *mut *mut c_void, *mut *mut c_void) -> c_int>>,
-  pub entry_1_0_dev:        Option<Symbol<extern "C" fn (*mut futhark_context, *mut *mut memblock_dev) -> c_int>>,
+  /*pub entry_1_0_dev:        Option<Symbol<extern "C" fn (*mut futhark_context, *mut *mut memblock_dev) -> c_int>>,
   pub entry_1_0_p_f32_dev:  Option<Symbol<extern "C" fn (*mut futhark_context, *mut *mut memblock_dev, f32) -> c_int>>,
   pub entry_1_0_p_i64_dev:  Option<Symbol<extern "C" fn (*mut futhark_context, *mut *mut memblock_dev, i64) -> c_int>>,
   pub entry_1_0_p_i64_i64_dev: Option<Symbol<extern "C" fn (*mut futhark_context, *mut *mut memblock_dev, i64, i64) -> c_int>>,
@@ -219,7 +219,7 @@ pub struct CudaObjectFFI {
   pub entry_1_2_p_i64_i64_i64_dev: Option<Symbol<extern "C" fn (*mut futhark_context, *mut *mut memblock_dev, *mut memblock_dev, *mut memblock_dev, i64, i64, i64) -> c_int>>,
   pub entry_1_2_p_i64_i64_i64_i64_dev: Option<Symbol<extern "C" fn (*mut futhark_context, *mut *mut memblock_dev, *mut memblock_dev, *mut memblock_dev, i64, i64, i64, i64) -> c_int>>,
   pub entry_1_3_dev:        Option<Symbol<extern "C" fn (*mut futhark_context, *mut *mut memblock_dev, *mut memblock_dev, *mut memblock_dev, *mut memblock_dev) -> c_int>>,
-  pub entry_1_4_dev:        Option<Symbol<extern "C" fn (*mut futhark_context, *mut *mut memblock_dev, *mut memblock_dev, *mut memblock_dev, *mut memblock_dev, *mut memblock_dev) -> c_int>>,
+  pub entry_1_4_dev:        Option<Symbol<extern "C" fn (*mut futhark_context, *mut *mut memblock_dev, *mut memblock_dev, *mut memblock_dev, *mut memblock_dev, *mut memblock_dev) -> c_int>>,*/
   /*pub entry: Option<(u16, u16, bool)>,*/
 }
 
@@ -325,10 +325,10 @@ impl CudaObjectFFI {
     self.base.ctx_reset = inner.get(b"futhark_context_reset").ok();
     self.base.ctx_release = inner.get(b"futhark_context_release").ok();
     // TODO
-    self.call_entry = inner.get(b"futhark_call_kernel").ok();
+    self.base.call_kernel = inner.get(b"futhark_call_kernel").ok();
   }
 
-  pub unsafe fn load_entry_symbol(&mut self, space: AbiSpace, arityin: u16, arityout: u16, param: &[AbiScalarType]) -> Option<()> {
+  /*pub unsafe fn load_entry_symbol(&mut self, space: AbiSpace, arityin: u16, arityout: u16, param: &[AbiScalarType]) -> Option<()> {
     let inner = self.lib_.as_ref().unwrap();
     match (arityout, arityin, space) {
       (1, 0, AbiSpace::Device) => {
@@ -383,5 +383,5 @@ impl CudaObjectFFI {
       _ => unimplemented!()
     }
     Some(())
-  }
+  }*/
 }

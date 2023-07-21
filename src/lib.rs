@@ -15,7 +15,7 @@ use rustc_serialize::hex::{ToHex};
 use rustc_serialize::json::{Decoder as JsonDecoder, Json};
 use ryu::{Buffer as RyuBuffer};
 
-use std::cell::{Cell, RefCell};
+use std::cell::{Cell, RefCell, UnsafeCell};
 use std::collections::{BTreeMap};
 use std::ffi::{CStr, OsStr, c_void};
 use std::fmt::{Debug, Formatter, Result as FmtResult, Write as FmtWrite};
@@ -131,34 +131,53 @@ impl AbiArrayRepr {
   }
 }
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Debug)]
+//#[derive(Clone, Copy, Debug)]
 pub enum AbiScalar {
   Unspec,
-  F64(f64),
-  F32(f32),
-  F16(u16),
-  Bf16(u16),
-  I64(i64),
-  I32(i32),
-  I16(i16),
-  I8(i8),
-  U64(u64),
-  U32(u32),
-  U16(u16),
-  U8(u8),
+  F64(Cell<f64>),
+  F32(Cell<f32>),
+  F16(Cell<u16>),
+  Bf16(Cell<u16>),
+  I64(Cell<i64>),
+  I32(Cell<i32>),
+  I16(Cell<i16>),
+  I8(Cell<i8>),
+  U64(Cell<u64>),
+  U32(Cell<u32>),
+  U16(Cell<u16>),
+  U8(Cell<u8>),
 }
 
 impl AbiScalar {
+  pub fn _as_ptr(&self) -> *mut c_void {
+    match self {
+      &AbiScalar::Unspec        => panic!("bug"),
+      &AbiScalar::F64(ref x)    => x.as_ptr() as *mut c_void,
+      &AbiScalar::F32(ref x)    => x.as_ptr() as *mut c_void,
+      &AbiScalar::F16(ref x)    => x.as_ptr() as *mut c_void,
+      &AbiScalar::Bf16(ref x)   => x.as_ptr() as *mut c_void,
+      &AbiScalar::I64(ref x)    => x.as_ptr() as *mut c_void,
+      &AbiScalar::I32(ref x)    => x.as_ptr() as *mut c_void,
+      &AbiScalar::I16(ref x)    => x.as_ptr() as *mut c_void,
+      &AbiScalar::I8(ref x)     => x.as_ptr() as *mut c_void,
+      &AbiScalar::U64(ref x)    => x.as_ptr() as *mut c_void,
+      &AbiScalar::U32(ref x)    => x.as_ptr() as *mut c_void,
+      &AbiScalar::U16(ref x)    => x.as_ptr() as *mut c_void,
+      &AbiScalar::U8(ref x)     => x.as_ptr() as *mut c_void,
+    }
+  }
+
   pub fn into_f32(&self) -> f32 {
     match self {
-      &AbiScalar::F32(x) => x,
+      &AbiScalar::F32(ref x) => x.get(),
       _ => panic!("bug: AbiScalar::into_f32: actual={:?}", self.type_())
     }
   }
 
   pub fn into_i64(&self) -> i64 {
     match self {
-      &AbiScalar::I64(x) => x,
+      &AbiScalar::I64(ref x) => x.get(),
       _ => panic!("bug: AbiScalar::into_i64: actual={:?}", self.type_())
     }
   }
@@ -1013,13 +1032,14 @@ impl Object<CudaBackend> {
 pub trait ObjectExt {
   type Array;
 
-  fn enter_kernel(&mut self, /*arityin: u16, arityout: u16,*/ abi: &Abi, param: &[AbiScalar], arg_arr: &[Self::Array], out_arr: &mut [Self::Array]) -> Result<(), i32>;
+  fn enter_kernel(&mut self, /*arityin: u16, arityout: u16,*/ abi: &Abi, param: &[AbiScalar], arg_arr: &[UnsafeCell<Self::Array>], out_arr: &[UnsafeCell<Self::Array>]) -> Result<(), i32>;
 }
 
 impl ObjectExt for Object<CudaBackend> {
   type Array = ArrayDev;
 
-  fn enter_kernel(&mut self, abi: &Abi, param: &[AbiScalar], arg_arr: &[ArrayDev], out_arr: &mut [ArrayDev]) -> Result<(), i32> {
+  //fn enter_kernel(&mut self, abi: &Abi, param: &[AbiScalar], arg_arr: &[ArrayDev], out_arr: &mut [ArrayDev]) -> Result<(), i32> {}
+  fn enter_kernel(&mut self, abi: &Abi, param: &[AbiScalar], arg_arr: &[UnsafeCell<ArrayDev>], out_arr: &[UnsafeCell<ArrayDev>]) -> Result<(), i32> {
     // FIXME FIXME
     assert_eq!(out_arr.len(), abi.arityout as usize);
     assert_eq!(arg_arr.len(), abi.arityin as usize);
@@ -1035,8 +1055,8 @@ impl ObjectExt for Object<CudaBackend> {
     }*/
     match self.eabi.as_ref() {
       None => {
-        let ret = unsafe { self.ffi.load_entry_symbol(AbiSpace::Device, abi.arityin, abi.arityout, &param_ty[ .. np]) };
-        assert!(ret.is_some());
+        //let ret = unsafe { self.ffi.load_entry_symbol(AbiSpace::Device, abi.arityin, abi.arityout, &param_ty[ .. np]) };
+        //assert!(ret.is_some());
         /*let e_abi = Abi{
           arityout,
           arityin,
@@ -1077,7 +1097,21 @@ impl ObjectExt for Object<CudaBackend> {
     if param.len() != abi.num_param() {
       panic!("ERROR: Object::<CudaBackend>::enter_kernel: abi mismatch v. param buf");
     }
-    let ret = match (abi.arityout, abi.arityin) {
+    let mut raw_out: Vec<*mut c_void> = Vec::with_capacity(self.manifest.entry_points.kernel.outputs.len());
+    let mut raw_arg: Vec<*mut c_void> = Vec::with_capacity(self.manifest.entry_points.kernel.inputs.len());
+    for k in 0 .. abi.arityout {
+      raw_out.push(out_arr[k as usize].get() as *mut c_void);
+    }
+    assert_eq!(raw_out.len(), self.manifest.entry_points.kernel.outputs.len());
+    for k in 0 .. abi.arityin {
+      raw_arg.push(arg_arr[k as usize].get() as *mut c_void);
+    }
+    for k in 0 .. abi.num_param() {
+      raw_arg.push(param[k]._as_ptr());
+    }
+    assert_eq!(raw_arg.len(), self.manifest.entry_points.kernel.inputs.len());
+    let ret = (self.ffi.base().call_kernel.as_ref().unwrap())(self.ctx, raw_out.as_mut_ptr(), raw_arg.as_mut_ptr());
+    /*let ret = match (abi.arityout, abi.arityin) {
       (1, 0) => {
         if &param_ty[ .. np] == &[AbiScalarType::F32] {
           (self.ffi.entry_1_0_p_f32_dev.as_ref().unwrap())(self.ctx, out_arr[0]._as_mut_ptr(), param[0].into_f32())
@@ -1120,13 +1154,20 @@ impl ObjectExt for Object<CudaBackend> {
       _ => {
         panic!("bug: Object::<CudaBackend>::enter_kernel: unimplemented: arityout={} arityin={} param={:?}", abi.arityout, abi.arityin, &param_ty);
       }
-    };
+    };*/
     if ret != FUTHARK_SUCCESS {
       return Err(ret);
     }
     Ok(())
   }
 }
+
+#[repr(transparent)]
+pub struct Array {
+  pub raw:  usize,
+}
+
+// TODO
 
 #[repr(transparent)]
 pub struct ArrayDev {
@@ -1269,9 +1310,9 @@ impl ArrayDev {
     (self.raw & (!7)) as *mut _
   }
 
-  pub fn _as_mut_ptr(&mut self) -> *mut *mut memblock_dev {
+  /*pub fn _as_mut_ptr(&mut self) -> *mut *mut memblock_dev {
     &mut self.raw as *mut usize as *mut *mut memblock_dev
-  }
+  }*/
 
   pub fn _ndim(&self) -> i8 {
     (self.raw & 7) as i8
@@ -1292,6 +1333,14 @@ impl ArrayDev {
     assert!(nd > 0);
     assert!(nd <= 7);
     self.raw |= (nd as usize);
+  }
+
+  pub fn _unset_ndim(&mut self) -> i8 {
+    let nd = self._ndim();
+    assert!(nd > 0);
+    assert!(nd <= 7);
+    self.raw &= (!7);
+    nd
   }
 
   pub fn refcount(&self) -> Option<i32> {
