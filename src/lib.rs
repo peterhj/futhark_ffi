@@ -310,10 +310,14 @@ impl Abi {
     (out, rep, dty)
   }
 
-  pub fn set_out_arr(&mut self, idx: u16, out: AbiOutput, rep: AbiArrayRepr, dty: AbiScalarType) {
+  pub fn set_out_arr(&self, idx: u16, out: AbiOutput, rep: AbiArrayRepr, dty: AbiScalarType) -> (AbiOutput, AbiArrayRepr, AbiScalarType) {
     assert!(idx < self.arityout);
-    let val = (out.to_bits() << 6) | (rep.to_bits() << 4) | dty.to_bits();
-    self.bits_buf.borrow_mut()[idx as usize] = val;
+    let mut val = (out.to_bits() << 6) | (rep.to_bits() << 4) | dty.to_bits();
+    swap(&mut self.bits_buf.borrow_mut()[idx as usize], &mut val);
+    let out = AbiOutput::from_bits(val >> 6);
+    let rep = AbiArrayRepr::from_bits((val >> 4) & 3);
+    let dty = AbiScalarType::from_bits(val & 15);
+    (out, rep, dty)
   }
 
   pub fn push_out_arr(&self, idx: u16, out: AbiOutput, rep: AbiArrayRepr, dty: AbiScalarType) {
@@ -533,6 +537,7 @@ impl ObjectManifest {
 }
 
 pub struct Object<B: Backend> {
+  pub src_hash: String,
   pub manifest: ObjectManifest,
   pub eabi: Option<Abi>,
   pub cfg:  *mut futhark_context_config,
@@ -552,9 +557,10 @@ impl<B: Backend> Drop for Object<B> {
 }
 
 impl<B: Backend> Object<B> {
-  pub fn open<P: AsRef<OsStr>>(manifest: ObjectManifest, dylib_path: P) -> Result<Object<B>, ()> {
+  pub fn open<P: AsRef<OsStr>>(src_hash: String, manifest: ObjectManifest, dylib_path: P) -> Result<Object<B>, ()> {
     let ffi = unsafe { <<B as Backend>::FFI as ObjectFFI>::open(dylib_path).map_err(|_| ())? };
     Ok(Object{
+      src_hash,
       manifest,
       eabi: None,
       cfg:  null_mut(),
@@ -961,7 +967,7 @@ impl Config {
       }
       if stage == Stage::Dylib {
         let manifest = stage_mem.manifest.unwrap();
-        return Object::open(manifest, &dylib_path).map_err(|_| BuildError::Dylib).map(|obj| Some(obj));
+        return Object::open(src_hx, manifest, &dylib_path).map_err(|_| BuildError::Dylib).map(|obj| Some(obj));
       }
       unreachable!();
     }
@@ -1040,9 +1046,13 @@ impl ObjectExt for Object<CudaBackend> {
 
   //fn enter_kernel(&mut self, abi: &Abi, param: &[AbiScalar], arg_arr: &[ArrayDev], out_arr: &mut [ArrayDev]) -> Result<(), i32> {}
   fn enter_kernel(&mut self, abi: &Abi, param: &[AbiScalar], arg_arr: &[UnsafeCell<ArrayDev>], out_arr: &[UnsafeCell<ArrayDev>]) -> Result<(), i32> {
-    // FIXME FIXME
     assert_eq!(out_arr.len(), abi.arityout as usize);
-    assert_eq!(arg_arr.len(), abi.arityin as usize);
+    // FIXME
+    if let (AbiOutput::ImplicitInPlace, _, _) = abi.get_out_arr(0) {
+      assert_eq!(arg_arr.len(), (abi.arityin + 1) as usize);
+    } else {
+      assert_eq!(arg_arr.len(), abi.arityin as usize);
+    }
     let np = param.len();
     let mut param_ty = Vec::with_capacity(np);
     for p in param.iter() {
@@ -1088,8 +1098,14 @@ impl ObjectExt for Object<CudaBackend> {
         self.manifest.entry_points.kernel.inputs.len());
     println!("DEBUG: Object::<CudaBackend>::enter_kernel: out={} in={} param_ty={:?} param={:?}",
         abi.arityout, abi.arityin, &param_ty, param);
-    if self.manifest.entry_points.kernel.inputs.len() != abi.arityin as usize + abi.num_param() {
-      panic!("ERROR: Object::<CudaBackend>::enter_kernel: abi mismatch v. manifest");
+    if let (AbiOutput::ImplicitInPlace, _, _) = abi.get_out_arr(0) {
+      if self.manifest.entry_points.kernel.inputs.len() != (abi.arityin + 1) as usize + abi.num_param() {
+        panic!("ERROR: Object::<CudaBackend>::enter_kernel: abi mismatch v. manifest");
+      }
+    } else {
+      if self.manifest.entry_points.kernel.inputs.len() != abi.arityin as usize + abi.num_param() {
+        panic!("ERROR: Object::<CudaBackend>::enter_kernel: abi mismatch v. manifest");
+      }
     }
     if param_ty.len() != abi.num_param() {
       panic!("ERROR: Object::<CudaBackend>::enter_kernel: abi mismatch v. param ty buf");
@@ -1103,7 +1119,7 @@ impl ObjectExt for Object<CudaBackend> {
       raw_out.push(out_arr[k as usize].get() as *mut c_void);
     }
     assert_eq!(raw_out.len(), self.manifest.entry_points.kernel.outputs.len());
-    for k in 0 .. abi.arityin {
+    for k in 0 .. arg_arr.len() {
       raw_arg.push(arg_arr[k as usize].get() as *mut c_void);
     }
     for k in 0 .. abi.num_param() {
