@@ -310,60 +310,72 @@ impl Abi {
     (out, rep, dty)
   }
 
-  pub fn set_out_arr(&self, idx: u16, out: AbiOutput, rep: AbiArrayRepr, dty: AbiScalarType) -> (AbiOutput, AbiArrayRepr, AbiScalarType) {
+  pub fn set_out_arr(&self, idx: u16, out: AbiOutput, rep: AbiArrayRepr, dty: AbiScalarType) {
     assert!(idx < self.arityout);
-    let mut val = (out.to_bits() << 6) | (rep.to_bits() << 4) | dty.to_bits();
-    swap(&mut self.bits_buf.borrow_mut()[idx as usize], &mut val);
-    let out = AbiOutput::from_bits(val >> 6);
-    let rep = AbiArrayRepr::from_bits((val >> 4) & 3);
-    let dty = AbiScalarType::from_bits(val & 15);
-    (out, rep, dty)
+    let val = (out.to_bits() << 6) | (rep.to_bits() << 4) | dty.to_bits();
+    if idx as usize == self.bits_buf.borrow().len() {
+      self.bits_buf.borrow_mut().push(val);
+    } else {
+      self.bits_buf.borrow_mut()[idx as usize] = val;
+    }
   }
 
   pub fn push_out_arr(&self, idx: u16, out: AbiOutput, rep: AbiArrayRepr, dty: AbiScalarType) {
+    self.set_out_arr(idx, out, rep, dty)
+  }
+
+  /*pub fn push_out_arr(&self, idx: u16, out: AbiOutput, rep: AbiArrayRepr, dty: AbiScalarType) {
     let val = (out.to_bits() << 6) | (rep.to_bits() << 4) | dty.to_bits();
     assert_eq!(self.bits_buf.borrow().len(), idx as usize);
     self.bits_buf.borrow_mut().push(val);
-  }
+  }*/
 
   pub fn get_arg_arr(&self, idx: u16) -> (AbiArrayRepr, AbiScalarType) {
     assert!(idx < self.arityin);
-    let val = self.bits_buf.borrow_mut()[self.arityout as usize + idx as usize];
+    let val = self.bits_buf.borrow_mut()[(self.arityout + idx) as usize];
     let rep = AbiArrayRepr::from_bits(val >> 4);
     let dty = AbiScalarType::from_bits(val & 15);
     (rep, dty)
   }
 
-  pub fn set_arg_arr(&mut self, idx: u16, rep: AbiArrayRepr, dty: AbiScalarType) {
+  pub fn set_arg_arr(&self, idx: u16, rep: AbiArrayRepr, dty: AbiScalarType) {
     assert!(idx < self.arityin);
     let val = (rep.to_bits() << 4) | dty.to_bits();
-    self.bits_buf.borrow_mut()[self.arityout as usize + idx as usize] = val;
+    if (self.arityout + idx) as usize == self.bits_buf.borrow().len() {
+      self.bits_buf.borrow_mut().push(val);
+    } else {
+      self.bits_buf.borrow_mut()[(self.arityout + idx) as usize] = val;
+    }
   }
 
   pub fn push_arg_arr(&self, idx: u16, rep: AbiArrayRepr, dty: AbiScalarType) {
+    self.set_arg_arr(idx, rep, dty)
+  }
+
+  /*pub fn push_arg_arr(&self, idx: u16, rep: AbiArrayRepr, dty: AbiScalarType) {
     let val = (rep.to_bits() << 4) | dty.to_bits();
     assert_eq!(self.bits_buf.borrow().len(), self.arityout as usize + idx as usize);
     self.bits_buf.borrow_mut().push(val);
-  }
+  }*/
 
   pub fn get_param(&self, idx: u16) -> AbiScalarType {
     assert!(idx < self.param_ct.get());
-    let val = self.bits_buf.borrow_mut()[self.arityout as usize + self.arityin as usize + idx as usize];
+    let val = self.bits_buf.borrow_mut()[(self.arityout + self.arityin + idx) as usize];
     let dty = AbiScalarType::from_bits(val);
     dty
   }
 
-  pub fn set_param(&mut self, idx: u16, dty: AbiScalarType) {
+  pub fn set_param(&self, idx: u16, dty: AbiScalarType) {
     assert!(idx < self.param_ct.get());
     let val = dty.to_bits();
-    self.bits_buf.borrow_mut()[self.arityout as usize + self.arityin as usize + idx as usize] = val;
+    self.bits_buf.borrow_mut()[(self.arityout + self.arityin + idx) as usize] = val;
   }
 
   pub fn push_param(&self, idx: u16, dty: AbiScalarType) {
     assert_eq!(idx, self.param_ct.get());
     self.param_ct.set(idx + 1);
     let val = dty.to_bits();
-    assert_eq!(self.bits_buf.borrow().len(), self.arityout as usize + self.arityin as usize + idx as usize);
+    assert_eq!(self.bits_buf.borrow().len(), (self.arityout + self.arityin + idx) as usize);
     self.bits_buf.borrow_mut().push(val);
   }
 }
