@@ -1240,6 +1240,16 @@ impl Debug for ArrayDev {
   }
 }
 
+impl Clone for ArrayDev {
+  fn clone(&self) -> ArrayDev {
+    if self.as_ptr().is_null() {
+      return ArrayDev::null();
+    }
+    self._inc_refcount();
+    ArrayDev{raw: self.raw}
+  }
+}
+
 impl Drop for ArrayDev {
   fn drop(&mut self) {
     let ptr = self.as_ptr();
@@ -1404,6 +1414,20 @@ impl ArrayDev {
       let new_c = prev_c - 1;
       write(c, new_c);
       Some(new_c)
+    }
+  }
+
+  pub fn _inc_refcount(&self) -> i32 {
+    let mem = self.as_ptr();
+    assert!(!mem.is_null());
+    unsafe {
+      let c = (&*mem).refcount as *mut i32;
+      assert!(!c.is_null());
+      let prev_c = *c;
+      assert!(prev_c >= 1);
+      let new_c = prev_c + 1;
+      write(c, new_c);
+      new_c
     }
   }
 
