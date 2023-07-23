@@ -14,6 +14,7 @@ pub struct BaseObjectFFI {
   pub ctx_cfg_set_mem_alloc: Option<Symbol<extern "C" fn (*mut futhark_context_config, *mut c_void)>>,
   pub ctx_cfg_set_mem_free: Option<Symbol<extern "C" fn (*mut futhark_context_config, *mut c_void)>>,
   pub ctx_cfg_set_mem_unify: Option<Symbol<extern "C" fn (*mut futhark_context_config, *mut c_void)>>,
+  pub ctx_cfg_set_cache_file: Option<Symbol<extern "C" fn (*mut futhark_context_config, *const c_char)>>,
   pub ctx_new:      Option<Symbol<extern "C" fn (*mut futhark_context_config) -> *mut futhark_context>>,
   pub ctx_free:     Option<Symbol<extern "C" fn (*mut futhark_context)>>,
   pub ctx_may_fail: Option<Symbol<extern "C" fn (*mut futhark_context) -> c_int>>,
@@ -74,6 +75,7 @@ impl SequentialObjectFFI {
     self.base.ctx_cfg_set_mem_alloc = inner.get(b"futhark_context_config_set_mem_alloc").ok();
     self.base.ctx_cfg_set_mem_free = inner.get(b"futhark_context_config_set_mem_free").ok();
     self.base.ctx_cfg_set_mem_unify = inner.get(b"futhark_context_config_set_mem_unify").ok();
+    self.base.ctx_cfg_set_cache_file = inner.get(b"futhark_context_config_set_cache_file").ok();
     self.base.ctx_new = inner.get(b"futhark_context_new").ok();
     self.base.ctx_free = inner.get(b"futhark_context_free").ok();
     self.base.ctx_may_fail = inner.get(b"futhark_context_may_fail").ok();
@@ -132,6 +134,7 @@ impl MulticoreObjectFFI {
     self.base.ctx_cfg_set_mem_alloc = inner.get(b"futhark_context_config_set_mem_alloc").ok();
     self.base.ctx_cfg_set_mem_free = inner.get(b"futhark_context_config_set_mem_free").ok();
     self.base.ctx_cfg_set_mem_unify = inner.get(b"futhark_context_config_set_mem_unify").ok();
+    self.base.ctx_cfg_set_cache_file = inner.get(b"futhark_context_config_set_cache_file").ok();
     self.ctx_cfg_set_num_threads = inner.get(b"futhark_context_config_set_num_threads").ok();
     self.base.ctx_new = inner.get(b"futhark_context_new").ok();
     self.base.ctx_free = inner.get(b"futhark_context_free").ok();
@@ -262,6 +265,7 @@ impl CudaObjectFFI {
     self.base.ctx_cfg_set_mem_alloc = inner.get(b"futhark_context_config_set_mem_alloc").ok();
     self.base.ctx_cfg_set_mem_free = inner.get(b"futhark_context_config_set_mem_free").ok();
     self.base.ctx_cfg_set_mem_unify = inner.get(b"futhark_context_config_set_mem_unify").ok();
+    self.base.ctx_cfg_set_cache_file = inner.get(b"futhark_context_config_set_cache_file").ok();
     self.ctx_cfg_set_setup_device = inner.get(b"futhark_context_config_set_setup_device").ok();
     self.ctx_cfg_set_setup_stream = inner.get(b"futhark_context_config_set_setup_stream").ok();
     self.ctx_cfg_set_gpu_alloc = inner.get(b"futhark_context_config_set_gpu_alloc").ok();

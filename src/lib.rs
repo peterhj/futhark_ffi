@@ -8,7 +8,7 @@ use self::blake2s::{Blake2s};
 use self::bindings::*;
 use self::types::*;
 
-use libc::{malloc, free};
+use libc::{malloc, free, c_void};
 //use potato::{Blake2s};
 use rustc_serialize::{Decodable};
 use rustc_serialize::hex::{ToHex};
@@ -17,7 +17,7 @@ use ryu::{Buffer as RyuBuffer};
 
 use std::cell::{Cell, RefCell, UnsafeCell};
 use std::collections::{BTreeMap};
-use std::ffi::{CStr, OsStr, c_void};
+use std::ffi::{CStr, CString, OsStr};
 use std::fmt::{Debug, Formatter, Result as FmtResult, Write as FmtWrite};
 use std::fs::{File, OpenOptions, create_dir_all};
 use std::hash::{Hash, Hasher};
@@ -26,7 +26,7 @@ use std::mem::{size_of, swap};
 use std::os::unix::fs::{MetadataExt};
 use std::path::{Path, PathBuf};
 use std::process::{Command};
-use std::ptr::{copy_nonoverlapping, null_mut, write};
+use std::ptr::{copy_nonoverlapping, null, null_mut, write};
 use std::slice::{from_raw_parts};
 use std::str::{from_utf8};
 
@@ -550,6 +550,7 @@ impl ObjectManifest {
 
 pub struct Object<B: Backend> {
   pub src_hash: String,
+  pub fut_path: PathBuf,
   pub manifest: ObjectManifest,
   pub eabi: Option<Abi>,
   pub cfg:  *mut futhark_context_config,
@@ -569,16 +570,23 @@ impl<B: Backend> Drop for Object<B> {
 }
 
 impl<B: Backend> Object<B> {
-  pub fn open<P: AsRef<OsStr>>(src_hash: String, manifest: ObjectManifest, dylib_path: P) -> Result<Object<B>, ()> {
+  pub fn open<P: AsRef<OsStr>>(src_hash: String, fut_path: PathBuf, manifest: ObjectManifest, dylib_path: P) -> Result<Object<B>, ()> {
     let ffi = unsafe { <<B as Backend>::FFI as ObjectFFI>::open(dylib_path).map_err(|_| ())? };
     Ok(Object{
       src_hash,
+      fut_path,
       manifest,
       eabi: None,
       cfg:  null_mut(),
       ctx:  null_mut(),
       ffi,
     })
+  }
+
+  pub fn kcache_path(&self) -> Option<PathBuf> {
+    let mut kcache_path = self.fut_path.clone();
+    kcache_path.set_extension("kcache");
+    Some(kcache_path)
   }
 }
 
@@ -979,7 +987,7 @@ impl Config {
       }
       if stage == Stage::Dylib {
         let manifest = stage_mem.manifest.unwrap();
-        return Object::open(src_hx, manifest, &dylib_path).map_err(|_| BuildError::Dylib).map(|obj| Some(obj));
+        return Object::open(src_hx, f_path, manifest, &dylib_path).map_err(|_| BuildError::Dylib).map(|obj| Some(obj));
       }
       unreachable!();
     }
@@ -989,6 +997,21 @@ impl Config {
 impl<B: Backend> Object<B> {
   pub fn new_config(&mut self) {
     self.cfg = (self.ffi.base().ctx_cfg_new.as_ref().unwrap())();
+  }
+
+  pub fn set_cache_file<Q: Into<Option<P>>, P: AsRef<Path>>(&mut self, cache_path: Q) {
+    match cache_path.into() {
+      None => {
+        (self.ffi.base().ctx_cfg_set_cache_file.as_ref().unwrap())(self.cfg, null());
+      }
+      Some(cache_path) => {
+        let mut buf = cache_path.as_ref().to_str().unwrap().as_bytes().to_owned();
+        buf.push(b'\0');
+        //println!("DEBUG: Object::set_cache_file: path buf={:?}", &buf);
+        let cpath = CString::from_vec_with_nul(buf).unwrap();
+        (self.ffi.base().ctx_cfg_set_cache_file.as_ref().unwrap())(self.cfg, cpath.into_raw());
+      }
+    }
   }
 
   pub fn new_context(&mut self) {
