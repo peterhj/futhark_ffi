@@ -25,7 +25,7 @@ use std::io::{Read, Write, BufReader, BufWriter, Seek, SeekFrom};
 use std::mem::{size_of, swap};
 use std::os::unix::fs::{MetadataExt};
 use std::path::{Path, PathBuf};
-use std::process::{Command};
+use std::process::{Command, Stdio};
 use std::ptr::{copy_nonoverlapping, null_mut, write};
 use std::slice::{from_raw_parts};
 use std::str::{from_utf8};
@@ -750,9 +750,12 @@ pub enum Stage {
 }
 
 impl Config {
-  pub fn build<B: Backend>(&self, stage: Stage, name: Option<&str>, src_buf: &[u8]) -> Result<Option<Object<B>>, BuildError> {
+  pub fn build<B: Backend>(&self, stage: Stage, name: Option<&str>, source: &[String]) -> Result<Option<Object<B>>, BuildError> {
     let mut srchash = Blake2s::new_hash();
-    srchash.hash_bytes(src_buf);
+    for s in source.iter() {
+      srchash.hash_bytes(s.as_bytes());
+      srchash.hash_bytes(b"\n");
+    }
     let src_h = srchash.finalize();
     let src_hx = src_h.to_hex();
     let stem = format!("futhark_obj_{}_{}", B::cmd_arg(), src_hx);
@@ -814,7 +817,10 @@ impl Config {
           match OpenOptions::new().read(false).write(true).create(true).truncate(true).open(&f_path) {
             Err(_) => return Err(BuildError::Cache),
             Ok(mut f) => {
-              f.write_all(src_buf).unwrap();
+              for s in source.iter() {
+                f.write_all(s.as_bytes()).unwrap();
+                f.write_all(b"\n").unwrap();
+              }
             }
           }
           match stagefile.put_next(b'f', src_hx.as_bytes()) {
@@ -852,12 +858,17 @@ impl Config {
             .arg(B::cmd_arg())
             .arg("--library")
             .arg(&f_path)
-            .status()
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .output()
           {
             Err(_) => return Err(BuildError::FutharkCommand),
-            Ok(status) => {
-              if !status.success() {
-                return Err(BuildError::Futhark(status.code()));
+            Ok(output) => {
+              if !output.status.success() {
+                let code = output.status.code();
+                println!("DEBUG: futhark_ffi::Config::build: build failed with error code: {:?}", code);
+                println!("{:?}", output);
+                return Err(BuildError::Futhark(code));
               }
             }
           }
