@@ -26,7 +26,7 @@ use std::mem::{size_of, swap};
 use std::os::unix::fs::{MetadataExt};
 use std::path::{Path, PathBuf};
 use std::process::{Command};
-use std::ptr::{copy_nonoverlapping, null, null_mut, write};
+use std::ptr::{copy_nonoverlapping, null_mut, write};
 use std::slice::{from_raw_parts};
 use std::str::{from_utf8};
 
@@ -388,6 +388,7 @@ pub struct Config {
   pub include:  PathBuf,
   pub target:   Option<String>,
   pub verbose:  bool,
+  pub debug:    bool,
 }
 
 impl Config {
@@ -551,6 +552,7 @@ impl ObjectManifest {
 pub struct Object<B: Backend> {
   pub src_hash: String,
   pub fut_path: PathBuf,
+  pub debug:    bool,
   pub manifest: ObjectManifest,
   pub eabi: Option<Abi>,
   pub cfg:  *mut futhark_context_config,
@@ -564,6 +566,12 @@ impl<B: Backend> Drop for Object<B> {
       (self.ffi.base().ctx_free.as_ref().unwrap())(self.ctx);
     }
     if !self.cfg.is_null() {
+      let cbuf = (self.ffi.base().ctx_cfg_set_cache_file.as_ref().unwrap())(self.cfg, null_mut());
+      if !cbuf.is_null() {
+        unsafe {
+          let _cpath = CString::from_raw(cbuf);
+        }
+      }
       (self.ffi.base().ctx_cfg_free.as_ref().unwrap())(self.cfg);
     }
   }
@@ -575,6 +583,7 @@ impl<B: Backend> Object<B> {
     Ok(Object{
       src_hash,
       fut_path,
+      debug: false,
       manifest,
       eabi: None,
       cfg:  null_mut(),
@@ -980,14 +989,19 @@ impl Config {
             Ok(_) => {}
           }
           stage_mem.d = Some(dylib_hx.as_bytes().to_owned());
-          println!("DEBUG: futhark_ffi::Config::build: new build done!");
+          if self.debug { println!("DEBUG: futhark_ffi::Config::build: new build done!"); }
         } else {
-          println!("DEBUG: futhark_ffi::Config::build: load cached...");
+          if self.debug { println!("DEBUG: futhark_ffi::Config::build: load cached..."); }
         }
       }
       if stage == Stage::Dylib {
         let manifest = stage_mem.manifest.unwrap();
-        return Object::open(src_hx, f_path, manifest, &dylib_path).map_err(|_| BuildError::Dylib).map(|obj| Some(obj));
+        return Object::open(src_hx, f_path, manifest, &dylib_path)
+              .map_err(|_| BuildError::Dylib)
+              .map(|mut obj| {
+                obj.debug = self.debug;
+                Some(obj)
+              });
       }
       unreachable!();
     }
@@ -1002,7 +1016,7 @@ impl<B: Backend> Object<B> {
   pub fn set_cache_file<Q: Into<Option<P>>, P: AsRef<Path>>(&mut self, cache_path: Q) {
     match cache_path.into() {
       None => {
-        (self.ffi.base().ctx_cfg_set_cache_file.as_ref().unwrap())(self.cfg, null());
+        (self.ffi.base().ctx_cfg_set_cache_file.as_ref().unwrap())(self.cfg, null_mut());
       }
       Some(cache_path) => {
         let mut buf = cache_path.as_ref().to_str().unwrap().as_bytes().to_owned();
@@ -1127,12 +1141,14 @@ impl ObjectExt for Object<CudaBackend> {
         //assert_eq!(&e_abi.param_ty[..], &param_ty);
       }
     }
+    if self.debug {
     println!("DEBUG: Object::<CudaBackend>::enter_kernel: manifest.out.len={}",
         self.manifest.entry_points.kernel.outputs.len());
     println!("DEBUG: Object::<CudaBackend>::enter_kernel: manifest.in.len={}",
         self.manifest.entry_points.kernel.inputs.len());
     println!("DEBUG: Object::<CudaBackend>::enter_kernel: out={} in={} param_ty={:?} param={:?}",
         abi.arityout, abi.arityin, &param_ty, param);
+    }
     if let (AbiOutput::ImplicitInPlace, _, _) = abi.get_out_arr(0) {
       if self.manifest.entry_points.kernel.inputs.len() != (abi.arityin + 1) as usize + abi.num_param() {
         panic!("ERROR: Object::<CudaBackend>::enter_kernel: abi mismatch v. manifest");

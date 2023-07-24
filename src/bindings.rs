@@ -14,7 +14,7 @@ pub struct BaseObjectFFI {
   pub ctx_cfg_set_mem_alloc: Option<Symbol<extern "C" fn (*mut futhark_context_config, *mut c_void)>>,
   pub ctx_cfg_set_mem_free: Option<Symbol<extern "C" fn (*mut futhark_context_config, *mut c_void)>>,
   pub ctx_cfg_set_mem_unify: Option<Symbol<extern "C" fn (*mut futhark_context_config, *mut c_void)>>,
-  pub ctx_cfg_set_cache_file: Option<Symbol<extern "C" fn (*mut futhark_context_config, *const c_char)>>,
+  pub ctx_cfg_set_cache_file: Option<Symbol<extern "C" fn (*mut futhark_context_config, *mut c_char) -> *mut c_char>>,
   pub ctx_new:      Option<Symbol<extern "C" fn (*mut futhark_context_config) -> *mut futhark_context>>,
   pub ctx_free:     Option<Symbol<extern "C" fn (*mut futhark_context)>>,
   pub ctx_may_fail: Option<Symbol<extern "C" fn (*mut futhark_context) -> c_int>>,
