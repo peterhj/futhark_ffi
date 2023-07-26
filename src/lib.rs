@@ -16,6 +16,7 @@ use rustc_serialize::json::{Decoder as JsonDecoder, Json};
 use ryu::{Buffer as RyuBuffer};
 
 use std::cell::{Cell, RefCell, UnsafeCell};
+use std::cmp::{max};
 use std::collections::{BTreeMap};
 use std::ffi::{CStr, CString, OsStr};
 use std::fmt::{Debug, Formatter, Result as FmtResult, Write as FmtWrite};
@@ -73,9 +74,10 @@ impl FutharkFloatFormatter {
 #[repr(u8)]
 pub enum AbiOutput {
   Unspec = 0,
-  Pure,
-  ImplicitInPlace,
-  ExplicitInPlace,
+  Pure = 1,
+  ImplicitInPlace = 2,
+  //ExplicitInPlace,
+  Unique = 3,
 }
 
 impl Default for AbiOutput {
@@ -90,7 +92,65 @@ impl AbiOutput {
       0 => AbiOutput::Unspec,
       1 => AbiOutput::Pure,
       2 => AbiOutput::ImplicitInPlace,
-      3 => AbiOutput::ExplicitInPlace,
+      //3 => AbiOutput::ExplicitInPlace,
+      3 => AbiOutput::Unique,
+      _ => panic!("bug")
+    }
+  }
+
+  pub fn to_bits(self) -> u8 {
+    self as u8
+  }
+}
+
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+#[repr(u8)]
+pub enum AbiInput {
+  Unspec = 0,
+  Shared = 1,
+  Consumed = 3,
+}
+
+impl Default for AbiInput {
+  fn default() -> AbiInput {
+    AbiInput::Unspec
+  }
+}
+
+impl AbiInput {
+  pub fn from_bits(x: u8) -> AbiInput {
+    match x {
+      0 => AbiInput::Unspec,
+      1 => AbiInput::Shared,
+      3 => AbiInput::Consumed,
+      _ => panic!("bug")
+    }
+  }
+
+  pub fn to_bits(self) -> u8 {
+    self as u8
+  }
+}
+
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+#[repr(u8)]
+pub enum AbiParam {
+  Unspec = 0,
+  //ImplicitOutShape,
+  //Explicit,
+  // TODO
+}
+
+impl Default for AbiParam {
+  fn default() -> AbiParam {
+    AbiParam::Unspec
+  }
+}
+
+impl AbiParam {
+  pub fn from_bits(x: u8) -> AbiParam {
+    match x {
+      0 => AbiParam::Unspec,
       _ => panic!("bug")
     }
   }
@@ -137,8 +197,6 @@ pub enum AbiScalar {
   Unspec,
   F64(Cell<f64>),
   F32(Cell<f32>),
-  F16(Cell<u16>),
-  Bf16(Cell<u16>),
   I64(Cell<i64>),
   I32(Cell<i32>),
   I16(Cell<i16>),
@@ -147,6 +205,8 @@ pub enum AbiScalar {
   U32(Cell<u32>),
   U16(Cell<u16>),
   U8(Cell<u8>),
+  F16(Cell<u16>),
+  Bf16(Cell<u16>),
 }
 
 impl AbiScalar {
@@ -155,8 +215,6 @@ impl AbiScalar {
       &AbiScalar::Unspec        => panic!("bug"),
       &AbiScalar::F64(ref x)    => x.as_ptr() as *mut c_void,
       &AbiScalar::F32(ref x)    => x.as_ptr() as *mut c_void,
-      &AbiScalar::F16(ref x)    => x.as_ptr() as *mut c_void,
-      &AbiScalar::Bf16(ref x)   => x.as_ptr() as *mut c_void,
       &AbiScalar::I64(ref x)    => x.as_ptr() as *mut c_void,
       &AbiScalar::I32(ref x)    => x.as_ptr() as *mut c_void,
       &AbiScalar::I16(ref x)    => x.as_ptr() as *mut c_void,
@@ -165,6 +223,8 @@ impl AbiScalar {
       &AbiScalar::U32(ref x)    => x.as_ptr() as *mut c_void,
       &AbiScalar::U16(ref x)    => x.as_ptr() as *mut c_void,
       &AbiScalar::U8(ref x)     => x.as_ptr() as *mut c_void,
+      &AbiScalar::F16(ref x)    => x.as_ptr() as *mut c_void,
+      &AbiScalar::Bf16(ref x)   => x.as_ptr() as *mut c_void,
     }
   }
 
@@ -187,8 +247,6 @@ impl AbiScalar {
       &AbiScalar::Unspec    => AbiScalarType::Unspec,
       &AbiScalar::F64(..)   => AbiScalarType::F64,
       &AbiScalar::F32(..)   => AbiScalarType::F32,
-      &AbiScalar::F16(..)   => AbiScalarType::F16,
-      &AbiScalar::Bf16(..)  => AbiScalarType::Bf16,
       &AbiScalar::I64(..)   => AbiScalarType::I64,
       &AbiScalar::I32(..)   => AbiScalarType::I32,
       &AbiScalar::I16(..)   => AbiScalarType::I16,
@@ -197,6 +255,8 @@ impl AbiScalar {
       &AbiScalar::U32(..)   => AbiScalarType::U32,
       &AbiScalar::U16(..)   => AbiScalarType::U16,
       &AbiScalar::U8(..)    => AbiScalarType::U8,
+      &AbiScalar::F16(..)   => AbiScalarType::F16,
+      &AbiScalar::Bf16(..)  => AbiScalarType::Bf16,
     }
   }
 }
@@ -207,8 +267,6 @@ pub enum AbiScalarType {
   Unspec = 0,
   F64,
   F32,
-  F16,
-  Bf16,
   I64,
   I32,
   I16,
@@ -217,6 +275,8 @@ pub enum AbiScalarType {
   U32,
   U16,
   U8,
+  F16,
+  Bf16,
 }
 
 impl Default for AbiScalarType {
@@ -231,16 +291,16 @@ impl AbiScalarType {
       0   => AbiScalarType::Unspec,
       1   => AbiScalarType::F64,
       2   => AbiScalarType::F32,
-      3   => AbiScalarType::F16,
-      4   => AbiScalarType::Bf16,
-      5   => AbiScalarType::I64,
-      6   => AbiScalarType::I32,
-      7   => AbiScalarType::I16,
-      8   => AbiScalarType::I8,
-      9   => AbiScalarType::U64,
-      10  => AbiScalarType::U32,
-      11  => AbiScalarType::U16,
-      12  => AbiScalarType::U8,
+      3   => AbiScalarType::I64,
+      4   => AbiScalarType::I32,
+      5   => AbiScalarType::I16,
+      6   => AbiScalarType::I8,
+      7   => AbiScalarType::U64,
+      8   => AbiScalarType::U32,
+      9   => AbiScalarType::U16,
+      10  => AbiScalarType::U8,
+      11  => AbiScalarType::F16,
+      12  => AbiScalarType::Bf16,
       _   => panic!("bug")
     }
   }
@@ -330,17 +390,18 @@ impl Abi {
     self.bits_buf.borrow_mut().push(val);
   }*/
 
-  pub fn get_arg_arr(&self, idx: u16) -> (AbiArrayRepr, AbiScalarType) {
+  pub fn get_arg_arr(&self, idx: u16) -> (AbiInput, AbiArrayRepr, AbiScalarType) {
     assert!(idx < self.arityin);
     let val = self.bits_buf.borrow_mut()[(self.arityout + idx) as usize];
-    let rep = AbiArrayRepr::from_bits(val >> 4);
+    let in_ = AbiInput::from_bits(val >> 6);
+    let rep = AbiArrayRepr::from_bits((val >> 4) & 3);
     let dty = AbiScalarType::from_bits(val & 15);
-    (rep, dty)
+    (in_, rep, dty)
   }
 
-  pub fn set_arg_arr(&self, idx: u16, rep: AbiArrayRepr, dty: AbiScalarType) {
+  pub fn set_arg_arr(&self, idx: u16, in_: AbiInput, rep: AbiArrayRepr, dty: AbiScalarType) {
     assert!(idx < self.arityin);
-    let val = (rep.to_bits() << 4) | dty.to_bits();
+    let val = (in_.to_bits() << 6) | (rep.to_bits() << 4) | dty.to_bits();
     if (self.arityout + idx) as usize == self.bits_buf.borrow().len() {
       self.bits_buf.borrow_mut().push(val);
     } else {
@@ -348,8 +409,8 @@ impl Abi {
     }
   }
 
-  pub fn push_arg_arr(&self, idx: u16, rep: AbiArrayRepr, dty: AbiScalarType) {
-    self.set_arg_arr(idx, rep, dty)
+  pub fn push_arg_arr(&self, idx: u16, in_: AbiInput, rep: AbiArrayRepr, dty: AbiScalarType) {
+    self.set_arg_arr(idx, in_, rep, dty)
   }
 
   /*pub fn push_arg_arr(&self, idx: u16, rep: AbiArrayRepr, dty: AbiScalarType) {
@@ -377,6 +438,11 @@ impl Abi {
     let val = dty.to_bits();
     assert_eq!(self.bits_buf.borrow().len(), (self.arityout + self.arityin + idx) as usize);
     self.bits_buf.borrow_mut().push(val);
+  }
+
+  pub fn push_implicit_out_shape_param(&self, out_idx: u16, ndim: i8) {
+    // FIXME
+    unimplemented!();
   }
 }
 
@@ -1309,6 +1375,7 @@ impl Drop for ArrayDev {
     match self._dec_refcount() {
       Some(0) => {
         unsafe {
+          // FIXME: sticky refcount.
           let refc_ptr = (&*ptr).refcount;
           assert!(!refc_ptr.is_null());
           free(refc_ptr as *mut _);
@@ -1376,8 +1443,9 @@ impl ArrayDev {
   pub unsafe fn _init(&self) {
     let mem = self.as_ptr();
     assert!(!mem.is_null());
-    (&mut *mem).refcount = malloc(size_of::<i32>()) as *mut i32;
-    *(&mut *mem).refcount = 1;
+    (&mut *mem).refcount = malloc(size_of::<i32>() * 2) as *mut i32;
+    write((&mut *mem).refcount, 1);
+    write((&mut *mem).refcount.offset(1), 0);
     (&mut *mem).mem_dptr = 0;
     (&mut *mem).mem_size = 0;
     (&mut *mem).tag = null_mut();
@@ -1478,6 +1546,32 @@ impl ArrayDev {
       let new_c = prev_c + 1;
       write(c, new_c);
       new_c
+    }
+  }
+
+  pub fn sticky(&self) -> Option<i32> {
+    let mem = self.as_ptr() as *const memblock_dev;
+    if mem.is_null() {
+      return None;
+    }
+    unsafe {
+      let c = (&*mem).refcount as *const i32;
+      if c.is_null() {
+        return None;
+      }
+      Some(*(c.offset(1)))
+    }
+  }
+
+  pub fn _set_sticky(&self, sticky: i32) {
+    let mem = self.as_ptr() as *const memblock_dev;
+    assert!(!mem.is_null());
+    unsafe {
+      let c = (&*mem).refcount as *mut i32;
+      assert!(!c.is_null());
+      let prev_sticky = *(c.offset(1));
+      let new_sticky = max(prev_sticky, sticky);
+      write(c.offset(1), new_sticky);
     }
   }
 
