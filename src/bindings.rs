@@ -182,10 +182,10 @@ pub struct CudaObjectFFI {
   pub ctx_cfg_set_cuMemcpyHtoDAsync:        Option<Symbol<extern "C" fn (*mut futhark_context_config, *mut c_void)>>,
   pub ctx_cfg_set_cuMemcpyDtoHAsync:        Option<Symbol<extern "C" fn (*mut futhark_context_config, *mut c_void)>>,
   pub ctx_cfg_set_cuStreamSynchronize:      Option<Symbol<extern "C" fn (*mut futhark_context_config, *mut c_void)>>,
-  pub ctx_cfg_set_cudaEventCreate:          Option<Symbol<extern "C" fn (*mut futhark_context_config, *mut c_void)>>,
-  pub ctx_cfg_set_cudaEventDestroy:         Option<Symbol<extern "C" fn (*mut futhark_context_config, *mut c_void)>>,
-  pub ctx_cfg_set_cudaEventRecord:          Option<Symbol<extern "C" fn (*mut futhark_context_config, *mut c_void)>>,
-  pub ctx_cfg_set_cudaEventElapsedTime:     Option<Symbol<extern "C" fn (*mut futhark_context_config, *mut c_void)>>,
+  pub ctx_cfg_set_cuEventCreate:            Option<Symbol<extern "C" fn (*mut futhark_context_config, *mut c_void)>>,
+  pub ctx_cfg_set_cuEventDestroy:           Option<Symbol<extern "C" fn (*mut futhark_context_config, *mut c_void)>>,
+  pub ctx_cfg_set_cuEventRecord:            Option<Symbol<extern "C" fn (*mut futhark_context_config, *mut c_void)>>,
+  pub ctx_cfg_set_cuEventElapsedTime:       Option<Symbol<extern "C" fn (*mut futhark_context_config, *mut c_void)>>,
   pub ctx_cfg_set_nvrtcGetErrorString:      Option<Symbol<extern "C" fn (*mut futhark_context_config, *mut c_void)>>,
   pub ctx_cfg_set_nvrtcCreateProgram:       Option<Symbol<extern "C" fn (*mut futhark_context_config, *mut c_void)>>,
   pub ctx_cfg_set_nvrtcDestroyProgram:      Option<Symbol<extern "C" fn (*mut futhark_context_config, *mut c_void)>>,
@@ -295,10 +295,10 @@ impl CudaObjectFFI {
     self.ctx_cfg_set_cuMemcpyHtoDAsync = inner.get(b"futhark_context_config_set_cuMemcpyHtoDAsync").ok();
     self.ctx_cfg_set_cuMemcpyDtoHAsync = inner.get(b"futhark_context_config_set_cuMemcpyDtoHAsync").ok();
     self.ctx_cfg_set_cuStreamSynchronize = inner.get(b"futhark_context_config_set_cuStreamSynchronize").ok();
-    self.ctx_cfg_set_cudaEventCreate = inner.get(b"futhark_context_config_set_cudaEventCreate").ok();
-    self.ctx_cfg_set_cudaEventDestroy = inner.get(b"futhark_context_config_set_cudaEventDestroy").ok();
-    self.ctx_cfg_set_cudaEventRecord = inner.get(b"futhark_context_config_set_cudaEventRecord").ok();
-    self.ctx_cfg_set_cudaEventElapsedTime = inner.get(b"futhark_context_config_set_cudaEventElapsedTime").ok();
+    self.ctx_cfg_set_cuEventCreate = inner.get(b"futhark_context_config_set_cuEventCreate").ok();
+    self.ctx_cfg_set_cuEventDestroy = inner.get(b"futhark_context_config_set_cuEventDestroy").ok();
+    self.ctx_cfg_set_cuEventRecord = inner.get(b"futhark_context_config_set_cuEventRecord").ok();
+    self.ctx_cfg_set_cuEventElapsedTime = inner.get(b"futhark_context_config_set_cuEventElapsedTime").ok();
     self.ctx_cfg_set_nvrtcGetErrorString = inner.get(b"futhark_context_config_set_nvrtcGetErrorString").ok();
     self.ctx_cfg_set_nvrtcCreateProgram = inner.get(b"futhark_context_config_set_nvrtcCreateProgram").ok();
     self.ctx_cfg_set_nvrtcDestroyProgram = inner.get(b"futhark_context_config_set_nvrtcDestroyProgram").ok();
