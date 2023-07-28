@@ -933,7 +933,10 @@ impl Config {
               if !output.status.success() {
                 let code = output.status.code();
                 println!("DEBUG: futhark_ffi::Config::build: build failed with error code: {:?}", code);
-                println!("{:?}", output);
+                //println!("{:?}", output);
+                println!("DEBUG: futhark_ffi::Config::build: ----- stderr below -----");
+                println!("{}", from_utf8(&output.stderr).unwrap());
+                println!("DEBUG: futhark_ffi::Config::build: ----- stderr above -----");
                 return Err(BuildError::Futhark(code));
               }
             }
@@ -1358,11 +1361,23 @@ impl Debug for ArrayDev {
 
 impl Clone for ArrayDev {
   fn clone(&self) -> ArrayDev {
-    if self.as_ptr().is_null() {
+    let o_mem = self.as_ptr();
+    if o_mem.is_null() {
       return ArrayDev::null();
     }
+    let ndim = self._ndim();
+    assert!(ndim >= 1);
+    assert!(ndim <= 4);
     self._inc_refcount();
-    ArrayDev{raw: self.raw}
+    let mem_sz = size_of::<memblock_dev>() + 8 * (ndim as usize);
+    let ptr = unsafe {
+      let mem = malloc(mem_sz) as *mut memblock_dev;
+      assert!(!mem.is_null());
+      // FIXME FIXME: check that we can do copy_nonoverlapping.
+      copy_nonoverlapping(o_mem as *const _ as *const u8, mem as *mut u8, mem_sz);
+      mem
+    };
+    ArrayDev::from_raw(ptr, ndim)
   }
 }
 
@@ -1380,18 +1395,18 @@ impl Drop for ArrayDev {
           assert!(!refc_ptr.is_null());
           free(refc_ptr as *mut _);
         }
-        match self._ndim() {
-          1 | 2 | 3 | 4 => unsafe { free(ptr as *mut _) },
-          _ => unreachable!()
-        }
       }
-      Some(_) | None => {}
+      None | Some(_) => {}
+    }
+    match self._ndim() {
+      1 | 2 | 3 | 4 => unsafe { free(ptr as *mut _) },
+      _ => unreachable!()
     }
   }
 }
 
 impl ArrayDev {
-  pub fn from_raw(ptr: *mut memblock_dev, ndim: u8) -> ArrayDev {
+  pub fn from_raw(ptr: *mut memblock_dev, ndim: i8) -> ArrayDev {
     assert!(!ptr.is_null());
     let raw_ptr = ptr as usize;
     assert_eq!(raw_ptr & 7, 0);
