@@ -829,6 +829,13 @@ impl Config {
     let mut f_path = self.cachedir.clone();
     f_path.push(&stem);
     f_path.set_extension("fut");
+    let f_path_str = f_path.to_str().unwrap();
+    for &c in f_path_str.as_bytes() {
+      // FIXME: sanitize path.
+      if c == b'\"' {
+        panic!("bug");
+      }
+    }
     let mut name_path = f_path.clone();
     let mut c_path = f_path.clone();
     let mut h_path = f_path.clone();
@@ -1034,6 +1041,7 @@ impl Config {
             .debug(true)
             .opt_level(2)
             .pic(true)
+            .define("FUTHARK_SOURCE_FILE", &format!("\"{}\"", f_path_str) as &str)
             .include(&self.cachedir)
             .include(&self.include)
             .file(&c_path)
