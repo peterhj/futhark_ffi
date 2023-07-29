@@ -210,7 +210,7 @@ pub enum AbiScalar {
 }
 
 impl AbiScalar {
-  pub fn _as_ptr(&self) -> *mut c_void {
+  pub fn _get_ptr(&self) -> *mut c_void {
     match self {
       &AbiScalar::Unspec        => panic!("bug"),
       &AbiScalar::F64(ref x)    => x.as_ptr() as *mut c_void,
@@ -446,6 +446,32 @@ impl Abi {
   }
 }
 
+#[derive(Clone, PartialEq, Eq, Hash, Default, Debug)]
+pub struct EntryAbi {
+  pub arityout: u16,
+  pub arityin:  u16,
+  pub param_ct: u16,
+  pub space:    AbiSpace,
+  pub data:     Vec<u8>,
+}
+
+impl EntryAbi {
+  pub fn get_param(&self, idx: u16) -> AbiScalarType {
+    assert!(idx < self.param_ct);
+    let u = self.data[idx as usize];
+    AbiScalarType::from_bits(u)
+  }
+
+  pub fn set_param(&mut self, idx: u16, sty: AbiScalarType) {
+    assert!(idx < self.param_ct);
+    if self.data.len() <= idx as usize {
+      self.data.resize(idx as usize + 1, 0);
+    }
+    let u = sty.to_bits();
+    self.data[idx as usize] = u;
+  }
+}
+
 #[derive(Clone, Default, Debug)]
 pub struct Config {
   // TODO
@@ -620,7 +646,8 @@ pub struct Object<B: Backend> {
   pub fut_path: PathBuf,
   pub debug:    bool,
   pub manifest: ObjectManifest,
-  pub eabi: Option<Abi>,
+  //pub eabi: Option<Abi>,
+  pub eabi: Option<EntryAbi>,
   pub cfg:  *mut futhark_context_config,
   pub ctx:  *mut futhark_context,
   pub ffi:  <B as Backend>::FFI,
@@ -1175,31 +1202,66 @@ impl Object<CudaBackend> {
 pub trait ObjectExt {
   type Array;
 
-  fn enter_kernel(&mut self, /*arityin: u16, arityout: u16,*/ abi: &Abi, param: &[AbiScalar], arg_arr: &[UnsafeCell<Self::Array>], out_arr: &[UnsafeCell<Self::Array>]) -> Result<(), i32>;
+  fn enter_kernel(&mut self, /*arityin: u16, arityout: u16,*/ /*abi: &Abi,*/ eabi: EntryAbi, param: &[AbiScalar], arg_arr: &[UnsafeCell<Self::Array>], out_arr: &[UnsafeCell<Self::Array>]) -> Result<(), i32>;
 }
 
 impl ObjectExt for Object<CudaBackend> {
   type Array = ArrayDev;
 
   //fn enter_kernel(&mut self, abi: &Abi, param: &[AbiScalar], arg_arr: &[ArrayDev], out_arr: &mut [ArrayDev]) -> Result<(), i32> {}
-  fn enter_kernel(&mut self, abi: &Abi, param: &[AbiScalar], arg_arr: &[UnsafeCell<ArrayDev>], out_arr: &[UnsafeCell<ArrayDev>]) -> Result<(), i32> {
-    assert_eq!(out_arr.len(), abi.arityout as usize);
+  fn enter_kernel(&mut self, /*_abi: &Abi,*/ eabi: EntryAbi, param: &[AbiScalar], arg_arr: &[UnsafeCell<ArrayDev>], out_arr: &[UnsafeCell<ArrayDev>]) -> Result<(), i32> {
+    /*assert_eq!(out_arr.len(), abi.arityout as usize);
     // FIXME
     if let (AbiOutput::ImplicitInPlace, _, _) = abi.get_out_arr(0) {
       assert_eq!(arg_arr.len(), (abi.arityin + 1) as usize);
     } else {
       assert_eq!(arg_arr.len(), abi.arityin as usize);
-    }
+    }*/
     let np = param.len();
     let mut param_ty = Vec::with_capacity(np);
     for p in param.iter() {
       param_ty.push(p.type_());
     }
-    assert_eq!(param_ty.len(), np);
-    assert_eq!(abi.num_param(), np);
+    /*assert_eq!(abi.num_param(), np);*/
     /*for _ in np .. 1 {
       param_ty.push(AbiScalarType::Unspec);
     }*/
+    if self.debug {
+    println!("DEBUG: Object::<CudaBackend>::enter_kernel: manifest.out.len={}",
+        self.manifest.entry_points.kernel.outputs.len());
+    println!("DEBUG: Object::<CudaBackend>::enter_kernel: manifest.in.len={}",
+        self.manifest.entry_points.kernel.inputs.len());
+    /*println!("DEBUG: Object::<CudaBackend>::enter_kernel: out={} in={} param_ty={:?} param={:?}",
+        abi.arityout, abi.arityin, &param_ty, param);*/
+    println!("DEBUG: Object::<CudaBackend>::enter_kernel: out={} in={} param_ty={:?} param={:?}",
+        eabi.arityout, eabi.arityin, &param_ty, param);
+    }
+    assert_eq!(out_arr.len(), eabi.arityout as usize);
+    assert_eq!(arg_arr.len(), eabi.arityin as usize);
+    assert_eq!(np, param_ty.len());
+    assert_eq!(np, eabi.param_ct as usize);
+    /*if let (AbiOutput::ImplicitInPlace, _, _) = abi.get_out_arr(0) {
+      if self.manifest.entry_points.kernel.inputs.len() != (abi.arityin + 1) as usize + abi.num_param() {
+        panic!("ERROR: Object::<CudaBackend>::enter_kernel: abi mismatch v. manifest");
+      }
+    } else {
+      if self.manifest.entry_points.kernel.inputs.len() != abi.arityin as usize + abi.num_param() {
+        panic!("ERROR: Object::<CudaBackend>::enter_kernel: abi mismatch v. manifest");
+      }
+    }
+    if param_ty.len() != abi.num_param() {
+      panic!("ERROR: Object::<CudaBackend>::enter_kernel: abi mismatch v. param ty buf");
+    }
+    if param.len() != abi.num_param() {
+      panic!("ERROR: Object::<CudaBackend>::enter_kernel: abi mismatch v. param buf");
+    }*/
+    if self.manifest.entry_points.kernel.outputs.len() != eabi.arityout as usize {
+      panic!("ERROR: Object::<CudaBackend>::enter_kernel: eabi mismatch v. manifest (outputs)");
+    }
+    if self.manifest.entry_points.kernel.inputs.len() != (eabi.arityin + eabi.param_ct) as usize {
+      panic!("ERROR: Object::<CudaBackend>::enter_kernel: eabi mismatch v. manifest (inputs)");
+    }
+    // FIXME: we can also compare the eabi and manifest types.
     match self.eabi.as_ref() {
       None => {
         //let ret = unsafe { self.ffi.load_entry_symbol(AbiSpace::Device, abi.arityin, abi.arityout, &param_ty[ .. np]) };
@@ -1216,100 +1278,40 @@ impl ObjectExt for Object<CudaBackend> {
           param_ty: [param_ty[0]],*/
           bits_buf: RefCell::new(Vec::new()),
         };*/
-        let mut e_abi = abi.clone();
+        /*let mut e_abi = abi.clone();
         e_abi.space = AbiSpace::Device;
-        self.eabi = Some(e_abi);
+        self.eabi = Some(e_abi);*/
+        assert_eq!(eabi.space, AbiSpace::Device);
+        self.eabi = Some(eabi);
       }
       Some(e_abi) => {
-        assert_eq!(e_abi.space, AbiSpace::Device);
+        /*assert_eq!(e_abi.space, AbiSpace::Device);
         assert_eq!(e_abi.num_param(), abi.num_param());
         assert_eq!(e_abi.arityin, abi.arityin);
-        assert_eq!(e_abi.arityout, abi.arityout);
-        // FIXME FIXME
+        assert_eq!(e_abi.arityout, abi.arityout);*/
+        assert_eq!(e_abi.space, AbiSpace::Device);
+        assert_eq!(e_abi.space, eabi.space);
+        assert_eq!(e_abi.param_ct, eabi.param_ct);
+        assert_eq!(e_abi.arityin, eabi.arityin);
+        assert_eq!(e_abi.arityout, eabi.arityout);
+        // FIXME: compare eabi types.
         //assert_eq!(&e_abi.param_ty[..], &param_ty);
       }
     }
-    if self.debug {
-    println!("DEBUG: Object::<CudaBackend>::enter_kernel: manifest.out.len={}",
-        self.manifest.entry_points.kernel.outputs.len());
-    println!("DEBUG: Object::<CudaBackend>::enter_kernel: manifest.in.len={}",
-        self.manifest.entry_points.kernel.inputs.len());
-    println!("DEBUG: Object::<CudaBackend>::enter_kernel: out={} in={} param_ty={:?} param={:?}",
-        abi.arityout, abi.arityin, &param_ty, param);
-    }
-    if let (AbiOutput::ImplicitInPlace, _, _) = abi.get_out_arr(0) {
-      if self.manifest.entry_points.kernel.inputs.len() != (abi.arityin + 1) as usize + abi.num_param() {
-        panic!("ERROR: Object::<CudaBackend>::enter_kernel: abi mismatch v. manifest");
-      }
-    } else {
-      if self.manifest.entry_points.kernel.inputs.len() != abi.arityin as usize + abi.num_param() {
-        panic!("ERROR: Object::<CudaBackend>::enter_kernel: abi mismatch v. manifest");
-      }
-    }
-    if param_ty.len() != abi.num_param() {
-      panic!("ERROR: Object::<CudaBackend>::enter_kernel: abi mismatch v. param ty buf");
-    }
-    if param.len() != abi.num_param() {
-      panic!("ERROR: Object::<CudaBackend>::enter_kernel: abi mismatch v. param buf");
-    }
     let mut raw_out: Vec<*mut c_void> = Vec::with_capacity(self.manifest.entry_points.kernel.outputs.len());
     let mut raw_arg: Vec<*mut c_void> = Vec::with_capacity(self.manifest.entry_points.kernel.inputs.len());
-    for k in 0 .. abi.arityout {
+    for k in 0 .. out_arr.len() {
       raw_out.push(out_arr[k as usize].get() as *mut c_void);
     }
     assert_eq!(raw_out.len(), self.manifest.entry_points.kernel.outputs.len());
     for k in 0 .. arg_arr.len() {
       raw_arg.push(arg_arr[k as usize].get() as *mut c_void);
     }
-    for k in 0 .. abi.num_param() {
-      raw_arg.push(param[k]._as_ptr());
+    for k in 0 .. param.len() {
+      raw_arg.push(param[k]._get_ptr());
     }
     assert_eq!(raw_arg.len(), self.manifest.entry_points.kernel.inputs.len());
     let ret = (self.ffi.base().call_kernel.as_ref().unwrap())(self.ctx, raw_out.as_mut_ptr(), raw_arg.as_mut_ptr());
-    /*let ret = match (abi.arityout, abi.arityin) {
-      (1, 0) => {
-        if &param_ty[ .. np] == &[AbiScalarType::F32] {
-          (self.ffi.entry_1_0_p_f32_dev.as_ref().unwrap())(self.ctx, out_arr[0]._as_mut_ptr(), param[0].into_f32())
-        } else if &param_ty[ .. np] == &[AbiScalarType::I64, AbiScalarType::I64] {
-          (self.ffi.entry_1_0_p_i64_i64_dev.as_ref().unwrap())(self.ctx, out_arr[0]._as_mut_ptr(), param[0].into_i64(), param[1].into_i64())
-        } else if &param_ty[ .. np] == &[AbiScalarType::I64] {
-          (self.ffi.entry_1_0_p_i64_dev.as_ref().unwrap())(self.ctx, out_arr[0]._as_mut_ptr(), param[0].into_i64())
-        } else if &param_ty[ .. np] == &[] {
-          (self.ffi.entry_1_0_dev.as_ref().unwrap())(self.ctx, out_arr[0]._as_mut_ptr())
-        } else {
-          unimplemented!();
-        }
-      }
-      (1, 1) => {
-        if &param_ty[ .. np] == &[AbiScalarType::F32] {
-          (self.ffi.entry_1_1_p_f32_dev.as_ref().unwrap())(self.ctx, out_arr[0]._as_mut_ptr(), arg_arr[0].as_ptr(), param[0].into_f32())
-        } else if &param_ty[ .. np] == &[AbiScalarType::I64] {
-          (self.ffi.entry_1_1_p_i64_dev.as_ref().unwrap())(self.ctx, out_arr[0]._as_mut_ptr(), arg_arr[0].as_ptr(), param[0].into_i64())
-        } else if &param_ty[ .. np] == &[] {
-          (self.ffi.entry_1_1_dev.as_ref().unwrap())(self.ctx, out_arr[0]._as_mut_ptr(), arg_arr[0].as_ptr())
-        } else {
-          unimplemented!();
-        }
-      }
-      (1, 2) => {
-        if &param_ty[ .. np] == &[AbiScalarType::I64, AbiScalarType::I64, AbiScalarType::I64, AbiScalarType::I64] {
-          (self.ffi.entry_1_2_p_i64_i64_i64_i64_dev.as_ref().unwrap())(self.ctx, out_arr[0]._as_mut_ptr(), arg_arr[0].as_ptr(), arg_arr[1].as_ptr(), param[0].into_i64(), param[1].into_i64(), param[2].into_i64(), param[3].into_i64(), )
-        } else if &param_ty[ .. np] == &[AbiScalarType::I64, AbiScalarType::I64, AbiScalarType::I64] {
-          (self.ffi.entry_1_2_p_i64_i64_i64_dev.as_ref().unwrap())(self.ctx, out_arr[0]._as_mut_ptr(), arg_arr[0].as_ptr(), arg_arr[1].as_ptr(), param[0].into_i64(), param[1].into_i64(), param[2].into_i64(), )
-        } else if &param_ty[ .. np] == &[AbiScalarType::I64, AbiScalarType::I64] {
-          (self.ffi.entry_1_2_p_i64_i64_dev.as_ref().unwrap())(self.ctx, out_arr[0]._as_mut_ptr(), arg_arr[0].as_ptr(), arg_arr[1].as_ptr(), param[0].into_i64(), param[1].into_i64(), )
-        } else if &param_ty[ .. np] == &[] {
-          (self.ffi.entry_1_2_dev.as_ref().unwrap())(self.ctx, out_arr[0]._as_mut_ptr(), arg_arr[0].as_ptr(), arg_arr[1].as_ptr())
-        } else {
-          unimplemented!();
-        }
-      }
-      (1, 3) => (self.ffi.entry_1_3_dev.as_ref().unwrap())(self.ctx, out_arr[0]._as_mut_ptr(), arg_arr[0].as_ptr(), arg_arr[1].as_ptr(), arg_arr[2].as_ptr()),
-      (1, 4) => (self.ffi.entry_1_4_dev.as_ref().unwrap())(self.ctx, out_arr[0]._as_mut_ptr(), arg_arr[0].as_ptr(), arg_arr[1].as_ptr(), arg_arr[2].as_ptr(), arg_arr[3].as_ptr()),
-      _ => {
-        panic!("bug: Object::<CudaBackend>::enter_kernel: unimplemented: arityout={} arityin={} param={:?}", abi.arityout, abi.arityin, &param_ty);
-      }
-    };*/
     if ret != FUTHARK_SUCCESS {
       return Err(ret);
     }
