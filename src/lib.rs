@@ -70,7 +70,7 @@ impl FutharkFloatFormatter {
   }
 }
 
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+/*#[derive(Clone, Copy, PartialEq, Eq, Debug)]
 #[repr(u8)]
 pub enum AbiOutput {
   Unspec = 0,
@@ -189,7 +189,7 @@ impl AbiArrayRepr {
   pub fn to_bits(self) -> u8 {
     self as u8
   }
-}
+}*/
 
 #[derive(Clone, Debug)]
 //#[derive(Clone, Copy, Debug)]
@@ -324,7 +324,7 @@ impl Default for AbiSpace {
   }
 }
 
-#[derive(Clone, PartialEq, Eq, Default, Debug)]
+/*#[derive(Clone, PartialEq, Eq, Default, Debug)]
 pub struct Abi {
   pub arityout: u16,
   pub arityin:  u16,
@@ -444,7 +444,7 @@ impl Abi {
     // FIXME
     unimplemented!();
   }
-}
+}*/
 
 #[derive(Clone, PartialEq, Eq, Hash, Default, Debug)]
 pub struct EntryAbi {
