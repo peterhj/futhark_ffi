@@ -1205,6 +1205,82 @@ pub trait ObjectExt {
   fn enter_kernel(&mut self, /*arityin: u16, arityout: u16,*/ /*abi: &Abi,*/ eabi: EntryAbi, param: &[AbiScalar], arg_arr: &[UnsafeCell<Self::Array>], out_arr: &[UnsafeCell<Self::Array>]) -> Result<(), i32>;
 }
 
+impl ObjectExt for Object<MulticoreBackend> {
+  type Array = Array;
+
+  fn enter_kernel(&mut self, eabi: EntryAbi, param: &[AbiScalar], arg_arr: &[UnsafeCell<Array>], out_arr: &[UnsafeCell<Array>]) -> Result<(), i32> {
+    let np = param.len();
+    let mut param_ty = Vec::with_capacity(np);
+    for p in param.iter() {
+      param_ty.push(p.type_());
+    }
+    if self.debug {
+    println!("DEBUG: Object::<MulticoreBackend>::enter_kernel: manifest.out.len={}",
+        self.manifest.entry_points.kernel.outputs.len());
+    println!("DEBUG: Object::<MulticoreBackend>::enter_kernel: manifest.in.len={}",
+        self.manifest.entry_points.kernel.inputs.len());
+    println!("DEBUG: Object::<MulticoreBackend>::enter_kernel: out={} in={} param_ty={:?} param={:?}",
+        eabi.arityout, eabi.arityin, &param_ty, param);
+    }
+    assert_eq!(out_arr.len(), eabi.arityout as usize);
+    assert_eq!(arg_arr.len(), eabi.arityin as usize);
+    assert_eq!(np, param_ty.len());
+    assert_eq!(np, eabi.param_ct as usize);
+    if self.manifest.entry_points.kernel.outputs.len() != eabi.arityout as usize {
+      println!("ERROR: Object::<MulticoreBackend>::enter_kernel: eabi mismatch v. manifest (outputs)");
+      println!("ERROR: Object::<MulticoreBackend>::enter_kernel:   manifest outputs len={}",
+          self.manifest.entry_points.kernel.outputs.len());
+      println!("ERROR: Object::<MulticoreBackend>::enter_kernel:   eabi arity out={}",
+          eabi.arityout);
+      panic!();
+    }
+    if self.manifest.entry_points.kernel.inputs.len() != (eabi.arityin + eabi.param_ct) as usize {
+      println!("ERROR: Object::<MulticoreBackend>::enter_kernel: eabi mismatch v. manifest (inputs)");
+      println!("ERROR: Object::<MulticoreBackend>::enter_kernel:   manifest inputs len={}",
+          self.manifest.entry_points.kernel.inputs.len());
+      println!("ERROR: Object::<MulticoreBackend>::enter_kernel:   eabi arity in={}",
+          eabi.arityin);
+      println!("ERROR: Object::<MulticoreBackend>::enter_kernel:   eabi param ct={}",
+          eabi.param_ct);
+      panic!();
+    }
+    // FIXME: we can also compare the eabi and manifest types.
+    match self.eabi.as_ref() {
+      None => {
+        assert_eq!(eabi.space, AbiSpace::Default);
+        self.eabi = Some(eabi);
+      }
+      Some(e_abi) => {
+        assert_eq!(e_abi.space, AbiSpace::Default);
+        assert_eq!(e_abi.space, eabi.space);
+        assert_eq!(e_abi.param_ct, eabi.param_ct);
+        assert_eq!(e_abi.arityin, eabi.arityin);
+        assert_eq!(e_abi.arityout, eabi.arityout);
+        // FIXME: compare eabi types.
+        //assert_eq!(&e_abi.param_ty[..], &param_ty);
+      }
+    }
+    let mut raw_out: Vec<*mut c_void> = Vec::with_capacity(self.manifest.entry_points.kernel.outputs.len());
+    let mut raw_arg: Vec<*mut c_void> = Vec::with_capacity(self.manifest.entry_points.kernel.inputs.len());
+    for k in 0 .. out_arr.len() {
+      raw_out.push(out_arr[k as usize].get() as *mut c_void);
+    }
+    assert_eq!(raw_out.len(), self.manifest.entry_points.kernel.outputs.len());
+    for k in 0 .. arg_arr.len() {
+      raw_arg.push(arg_arr[k as usize].get() as *mut c_void);
+    }
+    for k in 0 .. param.len() {
+      raw_arg.push(param[k]._get_ptr());
+    }
+    assert_eq!(raw_arg.len(), self.manifest.entry_points.kernel.inputs.len());
+    let ret = (self.ffi.base().call_kernel.as_ref().unwrap())(self.ctx, raw_out.as_mut_ptr(), raw_arg.as_mut_ptr());
+    if ret != FUTHARK_SUCCESS {
+      return Err(ret);
+    }
+    Ok(())
+  }
+}
+
 impl ObjectExt for Object<CudaBackend> {
   type Array = ArrayDev;
 
@@ -1256,10 +1332,22 @@ impl ObjectExt for Object<CudaBackend> {
       panic!("ERROR: Object::<CudaBackend>::enter_kernel: abi mismatch v. param buf");
     }*/
     if self.manifest.entry_points.kernel.outputs.len() != eabi.arityout as usize {
-      panic!("ERROR: Object::<CudaBackend>::enter_kernel: eabi mismatch v. manifest (outputs)");
+      println!("ERROR: Object::<CudaBackend>::enter_kernel: eabi mismatch v. manifest (outputs)");
+      println!("ERROR: Object::<CudaBackend>::enter_kernel:   manifest outputs len={}",
+          self.manifest.entry_points.kernel.outputs.len());
+      println!("ERROR: Object::<CudaBackend>::enter_kernel:   eabi arity out={}",
+          eabi.arityout);
+      panic!();
     }
     if self.manifest.entry_points.kernel.inputs.len() != (eabi.arityin + eabi.param_ct) as usize {
-      panic!("ERROR: Object::<CudaBackend>::enter_kernel: eabi mismatch v. manifest (inputs)");
+      println!("ERROR: Object::<CudaBackend>::enter_kernel: eabi mismatch v. manifest (inputs)");
+      println!("ERROR: Object::<CudaBackend>::enter_kernel:   manifest inputs len={}",
+          self.manifest.entry_points.kernel.inputs.len());
+      println!("ERROR: Object::<CudaBackend>::enter_kernel:   eabi arity in={}",
+          eabi.arityin);
+      println!("ERROR: Object::<CudaBackend>::enter_kernel:   eabi param ct={}",
+          eabi.param_ct);
+      panic!();
     }
     // FIXME: we can also compare the eabi and manifest types.
     match self.eabi.as_ref() {
@@ -1324,7 +1412,336 @@ pub struct Array {
   pub raw:  usize,
 }
 
-// TODO
+impl Debug for Array {
+  fn fmt(&self, f: &mut Formatter) -> FmtResult {
+    let ndim = self._ndim();
+    let mem = self.as_ptr();
+    if mem.is_null() {
+      return write!(f, "Array({} | null)", ndim);
+    }
+    unsafe {
+      let c = (&*mem).refcount as usize;
+      let ptr = (&*mem).mem_ptr as usize;
+      let size = (&*mem).mem_size as usize;
+      let tag = (&*mem).tag as usize;
+      write!(f, "Array({} | 0x{:016x} -> {{ refcount: 0x{:016x}",
+          ndim, mem as usize, c)?;
+      if c == 0 {
+      } else {
+        let cd = *(c as *const i32);
+        write!(f, " -> {}", cd)?;
+      }
+      write!(f, ", mem_ptr: 0x{:016x}, mem_size: {}", ptr, size)?;
+      if tag == 0 {
+        write!(f, ", tag: null")?;
+      } else {
+        write!(f, ", tag: 0x{:016x}", tag)?;
+      }
+      if ndim == 0 {
+        write!(f, " }})")?;
+      } else {
+        let buf = mem as *const u8;
+        let shape_buf = buf.offset(size_of::<memblock>() as _) as *const i64;
+        let shape = from_raw_parts(shape_buf, ndim as usize);
+        write!(f, ", shape: {:?} }})", shape)?;
+      }
+    }
+    Ok(())
+  }
+}
+
+impl Clone for Array {
+  fn clone(&self) -> Array {
+    let o_mem = self.as_ptr();
+    if o_mem.is_null() {
+      return Array::null();
+    }
+    let ndim = self._ndim();
+    assert!(ndim >= 1);
+    assert!(ndim <= 4);
+    self._inc_refcount();
+    let mem_sz = size_of::<memblock>() + 8 * (ndim as usize);
+    let ptr = unsafe {
+      let mem = malloc(mem_sz) as *mut memblock;
+      assert!(!mem.is_null());
+      // FIXME FIXME: check that we can do copy_nonoverlapping.
+      copy_nonoverlapping(o_mem as *const _ as *const u8, mem as *mut u8, mem_sz);
+      mem
+    };
+    Array::from_raw(ptr, ndim)
+  }
+}
+
+impl Drop for Array {
+  fn drop(&mut self) {
+    let ptr = self.as_ptr();
+    if ptr.is_null() {
+      return;
+    }
+    match self._dec_refcount() {
+      Some(0) => {
+        unsafe {
+          // FIXME: sticky refcount.
+          let refc_ptr = (&*ptr).refcount;
+          assert!(!refc_ptr.is_null());
+          free(refc_ptr as *mut _);
+        }
+      }
+      None | Some(_) => {}
+    }
+    match self._ndim() {
+      1 | 2 | 3 | 4 => unsafe { free(ptr as *mut _) },
+      _ => unreachable!()
+    }
+  }
+}
+
+impl Array {
+  pub fn from_raw(ptr: *mut memblock, ndim: i8) -> Array {
+    assert!(!ptr.is_null());
+    let raw_ptr = ptr as usize;
+    assert_eq!(raw_ptr & 7, 0);
+    let raw = match ndim {
+      1 | 2 | 3 | 4 => raw_ptr | (ndim as usize),
+      _ => unreachable!()
+    };
+    Array{raw}
+  }
+
+  pub fn null() -> Array {
+    let ptr: *mut memblock = null_mut();
+    let raw = ptr as usize;
+    Array{raw}
+  }
+
+  pub fn new_1d() -> Array {
+    assert_eq!(size_of::<array_1d>(), size_of::<memblock>() + 8);
+    let ptr = unsafe { malloc(size_of::<array_1d>()) } as *mut _;
+    let this = Array::from_raw(ptr, 1);
+    unsafe { this._init(); }
+    this
+  }
+
+  pub fn new_2d() -> Array {
+    assert_eq!(size_of::<array_2d>(), size_of::<memblock>() + 8 * 2);
+    let ptr = unsafe { malloc(size_of::<array_2d>()) } as *mut _;
+    let this = Array::from_raw(ptr, 2);
+    unsafe { this._init(); }
+    this
+  }
+
+  pub fn new_3d() -> Array {
+    assert_eq!(size_of::<array_3d>(), size_of::<memblock>() + 8 * 3);
+    let ptr = unsafe { malloc(size_of::<array_3d>()) } as *mut _;
+    let this = Array::from_raw(ptr, 3);
+    unsafe { this._init(); }
+    this
+  }
+
+  pub fn new_4d() -> Array {
+    assert_eq!(size_of::<array_4d>(), size_of::<memblock>() + 8 * 4);
+    let ptr = unsafe { malloc(size_of::<array_4d>()) } as *mut _;
+    let this = Array::from_raw(ptr, 4);
+    unsafe { this._init(); }
+    this
+  }
+
+  pub unsafe fn _init(&self) {
+    let mem = self.as_ptr();
+    assert!(!mem.is_null());
+    (&mut *mem).refcount = malloc(size_of::<i32>() * 2) as *mut i32;
+    write((&mut *mem).refcount, 1);
+    write((&mut *mem).refcount.offset(1), 0);
+    (&mut *mem).mem_ptr = null_mut();
+    (&mut *mem).mem_size = 0;
+    (&mut *mem).tag = null_mut();
+  }
+
+  pub fn take_ptr(&mut self) -> *mut memblock {
+    let mask = (self.raw & 7);
+    self.raw &= (!7);
+    let nil: *mut memblock = null_mut();
+    let mut out = nil as usize;
+    swap(&mut out, &mut self.raw);
+    self.raw |= mask;
+    let ptr = out as *mut _;
+    ptr
+  }
+
+  pub fn as_ptr(&self) -> *mut memblock {
+    (self.raw & (!7)) as *mut _
+  }
+
+  /*pub fn _as_mut_ptr(&mut self) -> *mut *mut memblock {
+    &mut self.raw as *mut usize as *mut *mut memblock
+  }*/
+
+  pub fn _ndim(&self) -> i8 {
+    (self.raw & 7) as i8
+  }
+
+  pub fn ndim(&self) -> Option<i8> {
+    let nd = self._ndim();
+    assert!(nd >= 0);
+    assert!(nd <= 7);
+    if nd == 0 {
+      return None;
+    }
+    Some(nd)
+  }
+
+  pub fn _set_ndim(&mut self, nd: i8) {
+    assert_eq!(0, self._ndim());
+    assert!(nd > 0);
+    assert!(nd <= 7);
+    self.raw |= (nd as usize);
+  }
+
+  pub fn _unset_ndim(&mut self) -> i8 {
+    let nd = self._ndim();
+    assert!(nd > 0);
+    assert!(nd <= 7);
+    self.raw &= (!7);
+    nd
+  }
+
+  pub fn refcount(&self) -> Option<i32> {
+    let mem = self.as_ptr() as *const memblock;
+    if mem.is_null() {
+      return None;
+    }
+    unsafe {
+      let c = (&*mem).refcount as *const i32;
+      if c.is_null() {
+        return None;
+      }
+      Some(*c)
+    }
+  }
+
+  pub fn _dec_refcount(&self) -> Option<i32> {
+    let mem = self.as_ptr();
+    if mem.is_null() {
+      return None;
+    }
+    //println!("DEBUG: Array::_dec_refcount: memptr=0x{:016x}", mem as usize);
+    unsafe {
+      let c = (&*mem).refcount as *mut i32;
+      if c.is_null() {
+        return None;
+      }
+      //println!("DEBUG: Array::_dec_refcount:   refc=0x{:016x}", c as usize);
+      //println!("DEBUG: Array::_dec_refcount:   ptr =0x{:016x}", (&*mem).mem_ptr as usize);
+      //println!("DEBUG: Array::_dec_refcount:   size=0x{:016x}", (&*mem).mem_size);
+      let prev_c = *c;
+      assert!(prev_c >= 1);
+      let new_c = prev_c - 1;
+      write(c, new_c);
+      Some(new_c)
+    }
+  }
+
+  pub fn _inc_refcount(&self) -> i32 {
+    let mem = self.as_ptr();
+    assert!(!mem.is_null());
+    unsafe {
+      let c = (&*mem).refcount as *mut i32;
+      assert!(!c.is_null());
+      let prev_c = *c;
+      assert!(prev_c >= 1);
+      let new_c = prev_c + 1;
+      write(c, new_c);
+      new_c
+    }
+  }
+
+  pub fn sticky(&self) -> Option<i32> {
+    let mem = self.as_ptr() as *const memblock;
+    if mem.is_null() {
+      return None;
+    }
+    unsafe {
+      let c = (&*mem).refcount as *const i32;
+      if c.is_null() {
+        return None;
+      }
+      Some(*(c.offset(1)))
+    }
+  }
+
+  pub fn _set_sticky(&self, sticky: i32) {
+    let mem = self.as_ptr() as *const memblock;
+    assert!(!mem.is_null());
+    unsafe {
+      let c = (&*mem).refcount as *mut i32;
+      assert!(!c.is_null());
+      let prev_sticky = *(c.offset(1));
+      let new_sticky = max(prev_sticky, sticky);
+      write(c.offset(1), new_sticky);
+    }
+  }
+
+  pub fn mem_parts(&self) -> Option<(*mut c_void, usize)> {
+    let mem = self.as_ptr() as *const memblock;
+    if mem.is_null() {
+      return None;
+    }
+    unsafe {
+      let mem = &*mem;
+      Some((mem.mem_ptr, mem.mem_size))
+    }
+  }
+
+  pub fn set_mem_parts(&self, ptr: *mut c_void, size: usize) {
+    let mem = self.as_ptr();
+    assert!(!mem.is_null());
+    unsafe {
+      (&mut *mem).mem_ptr = ptr;
+      (&mut *mem).mem_size = size;
+    }
+  }
+
+  pub fn tag(&self) -> Option<&CStr> {
+    let mem = self.as_ptr();
+    assert!(!mem.is_null());
+    unsafe {
+      let raw_tag = (&*mem).tag;
+      if raw_tag.is_null() {
+        None
+      } else {
+        Some(CStr::from_ptr(raw_tag))
+      }
+    }
+  }
+
+  pub fn shape(&self) -> Option<&[i64]> {
+    let ndim = self._ndim();
+    if ndim == 0 {
+      return None;
+    }
+    unsafe {
+      let buf = self.as_ptr() as *const u8;
+      if buf.is_null() {
+        return None;
+      }
+      let shape_buf = buf.offset(size_of::<memblock>() as _) as *const i64;
+      Some(from_raw_parts(shape_buf, ndim as usize))
+    }
+  }
+
+  pub fn set_shape(&self, new_shape: &[i64]) {
+    let ndim = self._ndim();
+    assert!(ndim != 0);
+    assert_eq!(ndim as usize, new_shape.len());
+    unsafe {
+      let buf = self.as_ptr() as *mut u8;
+      assert!(!buf.is_null());
+      let shape_buf = buf.offset(size_of::<memblock>() as _) as *mut i64;
+      // FIXME FIXME: check that we can do copy_nonoverlapping.
+      copy_nonoverlapping(new_shape.as_ptr(), shape_buf, ndim as usize);
+    }
+  }
+}
 
 #[repr(transparent)]
 pub struct ArrayDev {

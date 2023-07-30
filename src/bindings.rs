@@ -84,6 +84,7 @@ impl SequentialObjectFFI {
     self.base.ctx_reset = inner.get(b"futhark_context_reset").ok();
     self.base.ctx_release = inner.get(b"futhark_context_release").ok();
     // TODO
+    self.base.call_kernel = inner.get(b"futhark_call_kernel").ok();
   }
 }
 
@@ -144,6 +145,7 @@ impl MulticoreObjectFFI {
     self.base.ctx_reset = inner.get(b"futhark_context_reset").ok();
     self.base.ctx_release = inner.get(b"futhark_context_release").ok();
     // TODO
+    self.base.call_kernel = inner.get(b"futhark_call_kernel").ok();
   }
 }
 
