@@ -206,7 +206,7 @@ pub enum AbiScalar {
   U16(Cell<u16>),
   U8(Cell<u8>),
   F16(Cell<u16>),
-  Bf16(Cell<u16>),
+  //Bf16(Cell<u16>),
 }
 
 impl AbiScalar {
@@ -224,7 +224,7 @@ impl AbiScalar {
       &AbiScalar::U16(ref x)    => x.as_ptr() as *mut c_void,
       &AbiScalar::U8(ref x)     => x.as_ptr() as *mut c_void,
       &AbiScalar::F16(ref x)    => x.as_ptr() as *mut c_void,
-      &AbiScalar::Bf16(ref x)   => x.as_ptr() as *mut c_void,
+      //&AbiScalar::Bf16(ref x)   => x.as_ptr() as *mut c_void,
     }
   }
 
@@ -256,7 +256,7 @@ impl AbiScalar {
       &AbiScalar::U16(..)   => AbiScalarType::U16,
       &AbiScalar::U8(..)    => AbiScalarType::U8,
       &AbiScalar::F16(..)   => AbiScalarType::F16,
-      &AbiScalar::Bf16(..)  => AbiScalarType::Bf16,
+      //&AbiScalar::Bf16(..)  => AbiScalarType::Bf16,
     }
   }
 }
@@ -276,7 +276,7 @@ pub enum AbiScalarType {
   U16,
   U8,
   F16,
-  Bf16,
+  //Bf16,
 }
 
 impl Default for AbiScalarType {
@@ -300,13 +300,30 @@ impl AbiScalarType {
       9   => AbiScalarType::U16,
       10  => AbiScalarType::U8,
       11  => AbiScalarType::F16,
-      12  => AbiScalarType::Bf16,
+      //12  => AbiScalarType::Bf16,
       _   => panic!("bug")
     }
   }
 
   pub fn to_bits(self) -> u8 {
     self as u8
+  }
+
+  pub fn format_futhark(self) -> &'static str {
+    match self {
+      AbiScalarType::Unspec => panic!("bug"),
+      AbiScalarType::F64   => "f64",
+      AbiScalarType::F32   => "f32",
+      AbiScalarType::I64   => "i64",
+      AbiScalarType::I32   => "i32",
+      AbiScalarType::I16   => "i16",
+      AbiScalarType::I8    => "i8",
+      AbiScalarType::U64   => "u64",
+      AbiScalarType::U32   => "u32",
+      AbiScalarType::U16   => "u16",
+      AbiScalarType::U8    => "u8",
+      AbiScalarType::F16   => "f16",
+    }
   }
 }
 
