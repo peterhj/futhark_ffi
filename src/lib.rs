@@ -2,7 +2,7 @@ extern crate cc;
 extern crate libc;
 extern crate libloading;
 extern crate rustc_serialize;
-extern crate ryu;
+//extern crate ryu;
 
 use self::blake2s::{Blake2s};
 use self::bindings::*;
@@ -13,7 +13,7 @@ use libc::{malloc, free, c_void};
 use rustc_serialize::{Decodable};
 use rustc_serialize::hex::{ToHex};
 use rustc_serialize::json::{Decoder as JsonDecoder, Json};
-use ryu::{Buffer as RyuBuffer};
+//use ryu::{Buffer as RyuBuffer};
 
 use std::cell::{Cell, RefCell, UnsafeCell};
 use std::cmp::{max};
@@ -36,7 +36,7 @@ pub mod blake2s;
 pub mod build_env;
 pub mod types;
 
-#[derive(Default)]
+/*#[derive(Default)]
 pub struct FutharkFloatFormatter {
   buf:  RefCell<RyuBuffer>,
 }
@@ -68,7 +68,7 @@ impl FutharkFloatFormatter {
       s.push_str("f32");
     }
   }
-}
+}*/
 
 /*#[derive(Clone, Copy, PartialEq, Eq, Debug)]
 #[repr(u8)]

@@ -10,5 +10,5 @@ libloading = { path = "../libloading" }
 #memchr = { path = "../memchr" }
 #potato = { path = "../potato" }
 rustc_serialize = { path = "../rustc_serialize" }
-ryu = { path = "../ryu" }
+#ryu = { path = "../ryu" }
 #tempfile = { path = "../tempfile" }
