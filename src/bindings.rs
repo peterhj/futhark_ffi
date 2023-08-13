@@ -64,11 +64,11 @@ impl ObjectFFI for SequentialObjectFFI {
 
 impl SequentialObjectFFI {
   pub unsafe fn load_symbols(&mut self) {
-    // FIXME FIXME: why put these checks here? why not!
+    /*// FIXME FIXME: why put these checks here? why not!
     assert_eq!(align_of::<memblock>(), align_of::<array_1d>());
     assert_eq!(align_of::<memblock>(), align_of::<array_2d>());
     assert_eq!(align_of::<memblock>(), align_of::<array_3d>());
-    assert_eq!(align_of::<memblock>(), align_of::<array_4d>());
+    assert_eq!(align_of::<memblock>(), align_of::<array_4d>());*/
     let inner = self.lib_.as_ref().unwrap();
     self.base.ctx_cfg_new = inner.get(b"futhark_context_config_new").ok();
     self.base.ctx_cfg_free = inner.get(b"futhark_context_config_free").ok();
@@ -124,11 +124,11 @@ impl ObjectFFI for MulticoreObjectFFI {
 
 impl MulticoreObjectFFI {
   pub unsafe fn load_symbols(&mut self) {
-    // FIXME FIXME: why put these checks here? why not!
+    /*// FIXME FIXME: why put these checks here? why not!
     assert_eq!(align_of::<memblock>(), align_of::<array_1d>());
     assert_eq!(align_of::<memblock>(), align_of::<array_2d>());
     assert_eq!(align_of::<memblock>(), align_of::<array_3d>());
-    assert_eq!(align_of::<memblock>(), align_of::<array_4d>());
+    assert_eq!(align_of::<memblock>(), align_of::<array_4d>());*/
     let inner = self.lib_.as_ref().unwrap();
     self.base.ctx_cfg_new = inner.get(b"futhark_context_config_new").ok();
     self.base.ctx_cfg_free = inner.get(b"futhark_context_config_free").ok();
@@ -256,11 +256,11 @@ impl ObjectFFI for CudaObjectFFI {
 
 impl CudaObjectFFI {
   pub unsafe fn load_symbols(&mut self) {
-    // FIXME FIXME: why put these checks here? why not!
+    /*// FIXME FIXME: why put these checks here? why not!
     assert_eq!(align_of::<memblock_dev>(), align_of::<array_1d_dev>());
     assert_eq!(align_of::<memblock_dev>(), align_of::<array_2d_dev>());
     assert_eq!(align_of::<memblock_dev>(), align_of::<array_3d_dev>());
-    assert_eq!(align_of::<memblock_dev>(), align_of::<array_4d_dev>());
+    assert_eq!(align_of::<memblock_dev>(), align_of::<array_4d_dev>());*/
     let inner = self.lib_.as_ref().unwrap();
     self.base.ctx_cfg_new = inner.get(b"futhark_context_config_new").ok();
     self.base.ctx_cfg_free = inner.get(b"futhark_context_config_free").ok();
