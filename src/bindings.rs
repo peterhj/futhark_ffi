@@ -64,11 +64,6 @@ impl ObjectFFI for SequentialObjectFFI {
 
 impl SequentialObjectFFI {
   pub unsafe fn load_symbols(&mut self) {
-    /*// FIXME FIXME: why put these checks here? why not!
-    assert_eq!(align_of::<memblock>(), align_of::<array_1d>());
-    assert_eq!(align_of::<memblock>(), align_of::<array_2d>());
-    assert_eq!(align_of::<memblock>(), align_of::<array_3d>());
-    assert_eq!(align_of::<memblock>(), align_of::<array_4d>());*/
     let inner = self.lib_.as_ref().unwrap();
     self.base.ctx_cfg_new = inner.get(b"futhark_context_config_new").ok();
     self.base.ctx_cfg_free = inner.get(b"futhark_context_config_free").ok();
@@ -83,7 +78,6 @@ impl SequentialObjectFFI {
     self.base.ctx_error = inner.get(b"futhark_context_error").ok();
     self.base.ctx_reset = inner.get(b"futhark_context_reset").ok();
     self.base.ctx_release = inner.get(b"futhark_context_release").ok();
-    // TODO
     self.base.call_kernel = inner.get(b"futhark_call_kernel").ok();
   }
 }
@@ -93,7 +87,6 @@ pub struct MulticoreObjectFFI {
   pub lib_: Option<Library>,
   pub base: BaseObjectFFI,
   pub ctx_cfg_set_num_threads: Option<Symbol<extern "C" fn (*mut futhark_context_config, c_int)>>,
-  // TODO
 }
 
 impl Drop for MulticoreObjectFFI {
@@ -124,11 +117,6 @@ impl ObjectFFI for MulticoreObjectFFI {
 
 impl MulticoreObjectFFI {
   pub unsafe fn load_symbols(&mut self) {
-    /*// FIXME FIXME: why put these checks here? why not!
-    assert_eq!(align_of::<memblock>(), align_of::<array_1d>());
-    assert_eq!(align_of::<memblock>(), align_of::<array_2d>());
-    assert_eq!(align_of::<memblock>(), align_of::<array_3d>());
-    assert_eq!(align_of::<memblock>(), align_of::<array_4d>());*/
     let inner = self.lib_.as_ref().unwrap();
     self.base.ctx_cfg_new = inner.get(b"futhark_context_config_new").ok();
     self.base.ctx_cfg_free = inner.get(b"futhark_context_config_free").ok();
@@ -144,7 +132,6 @@ impl MulticoreObjectFFI {
     self.base.ctx_error = inner.get(b"futhark_context_error").ok();
     self.base.ctx_reset = inner.get(b"futhark_context_reset").ok();
     self.base.ctx_release = inner.get(b"futhark_context_release").ok();
-    // TODO
     self.base.call_kernel = inner.get(b"futhark_call_kernel").ok();
   }
 }
@@ -161,7 +148,6 @@ pub struct CudaObjectFFI {
   pub ctx_cfg_set_gpu_unify:                Option<Symbol<extern "C" fn (*mut futhark_context_config, *mut c_void)>>,
   pub ctx_cfg_set_gpu_global_failure_alloc: Option<Symbol<extern "C" fn (*mut futhark_context_config, *mut c_void)>>,
   pub ctx_cfg_set_gpu_global_failure_free:  Option<Symbol<extern "C" fn (*mut futhark_context_config, *mut c_void)>>,
-  // TODO TODO
   pub ctx_cfg_set_cuGetErrorString:         Option<Symbol<extern "C" fn (*mut futhark_context_config, *mut c_void)>>,
   pub ctx_cfg_set_cuInit:                   Option<Symbol<extern "C" fn (*mut futhark_context_config, *mut c_void)>>,
   pub ctx_cfg_set_cuDeviceGetCount:         Option<Symbol<extern "C" fn (*mut futhark_context_config, *mut c_void)>>,
@@ -211,21 +197,6 @@ pub struct CudaObjectFFI {
   pub ctx_set_lockstep_width:       Option<Symbol<extern "C" fn (*mut futhark_context, usize)>>,
   pub ctx_set_device:       Option<Symbol<extern "C" fn (*mut futhark_context, c_int) -> c_int>>,
   pub ctx_set_stream:       Option<Symbol<extern "C" fn (*mut futhark_context, *mut c_void) -> *mut c_void>>,
-  // TODO
-  /*pub entry_1_0_dev:        Option<Symbol<extern "C" fn (*mut futhark_context, *mut *mut memblock_dev) -> c_int>>,
-  pub entry_1_0_p_f32_dev:  Option<Symbol<extern "C" fn (*mut futhark_context, *mut *mut memblock_dev, f32) -> c_int>>,
-  pub entry_1_0_p_i64_dev:  Option<Symbol<extern "C" fn (*mut futhark_context, *mut *mut memblock_dev, i64) -> c_int>>,
-  pub entry_1_0_p_i64_i64_dev: Option<Symbol<extern "C" fn (*mut futhark_context, *mut *mut memblock_dev, i64, i64) -> c_int>>,
-  pub entry_1_1_dev:        Option<Symbol<extern "C" fn (*mut futhark_context, *mut *mut memblock_dev, *mut memblock_dev) -> c_int>>,
-  pub entry_1_1_p_f32_dev:  Option<Symbol<extern "C" fn (*mut futhark_context, *mut *mut memblock_dev, *mut memblock_dev, f32) -> c_int>>,
-  pub entry_1_1_p_i64_dev:  Option<Symbol<extern "C" fn (*mut futhark_context, *mut *mut memblock_dev, *mut memblock_dev, i64) -> c_int>>,
-  pub entry_1_2_dev:        Option<Symbol<extern "C" fn (*mut futhark_context, *mut *mut memblock_dev, *mut memblock_dev, *mut memblock_dev) -> c_int>>,
-  pub entry_1_2_p_i64_i64_dev: Option<Symbol<extern "C" fn (*mut futhark_context, *mut *mut memblock_dev, *mut memblock_dev, *mut memblock_dev, i64, i64) -> c_int>>,
-  pub entry_1_2_p_i64_i64_i64_dev: Option<Symbol<extern "C" fn (*mut futhark_context, *mut *mut memblock_dev, *mut memblock_dev, *mut memblock_dev, i64, i64, i64) -> c_int>>,
-  pub entry_1_2_p_i64_i64_i64_i64_dev: Option<Symbol<extern "C" fn (*mut futhark_context, *mut *mut memblock_dev, *mut memblock_dev, *mut memblock_dev, i64, i64, i64, i64) -> c_int>>,
-  pub entry_1_3_dev:        Option<Symbol<extern "C" fn (*mut futhark_context, *mut *mut memblock_dev, *mut memblock_dev, *mut memblock_dev, *mut memblock_dev) -> c_int>>,
-  pub entry_1_4_dev:        Option<Symbol<extern "C" fn (*mut futhark_context, *mut *mut memblock_dev, *mut memblock_dev, *mut memblock_dev, *mut memblock_dev, *mut memblock_dev) -> c_int>>,*/
-  /*pub entry: Option<(u16, u16, bool)>,*/
 }
 
 impl Drop for CudaObjectFFI {
@@ -256,11 +227,6 @@ impl ObjectFFI for CudaObjectFFI {
 
 impl CudaObjectFFI {
   pub unsafe fn load_symbols(&mut self) {
-    /*// FIXME FIXME: why put these checks here? why not!
-    assert_eq!(align_of::<memblock_dev>(), align_of::<array_1d_dev>());
-    assert_eq!(align_of::<memblock_dev>(), align_of::<array_2d_dev>());
-    assert_eq!(align_of::<memblock_dev>(), align_of::<array_3d_dev>());
-    assert_eq!(align_of::<memblock_dev>(), align_of::<array_4d_dev>());*/
     let inner = self.lib_.as_ref().unwrap();
     self.base.ctx_cfg_new = inner.get(b"futhark_context_config_new").ok();
     self.base.ctx_cfg_free = inner.get(b"futhark_context_config_free").ok();
@@ -330,64 +296,6 @@ impl CudaObjectFFI {
     self.base.ctx_error = inner.get(b"futhark_context_error").ok();
     self.base.ctx_reset = inner.get(b"futhark_context_reset").ok();
     self.base.ctx_release = inner.get(b"futhark_context_release").ok();
-    // TODO
     self.base.call_kernel = inner.get(b"futhark_call_kernel").ok();
   }
-
-  /*pub unsafe fn load_entry_symbol(&mut self, space: AbiSpace, arityin: u16, arityout: u16, param: &[AbiScalarType]) -> Option<()> {
-    let inner = self.lib_.as_ref().unwrap();
-    match (arityout, arityin, space) {
-      (1, 0, AbiSpace::Device) => {
-        if param == &[AbiScalarType::F32] {
-          self.entry_1_0_p_f32_dev = inner.get(b"futhark_entry_kernel").ok();
-        } else if param == &[AbiScalarType::I64, AbiScalarType::I64] {
-          self.entry_1_0_p_i64_i64_dev = inner.get(b"futhark_entry_kernel").ok();
-        } else if param == &[AbiScalarType::I64] {
-          self.entry_1_0_p_i64_dev = inner.get(b"futhark_entry_kernel").ok();
-        } else if param == &[] {
-          self.entry_1_0_dev = inner.get(b"futhark_entry_kernel").ok();
-        } else {
-          println!("DEBUG: CudaObjectFFI: out={} in={} space={:?}: unimplemented abi param signature: {:?}",
-              arityout, arityin, space, param);
-          unimplemented!();
-        }
-      }
-      (1, 1, AbiSpace::Device) => {
-        if param == &[AbiScalarType::F32] {
-          self.entry_1_1_p_f32_dev = inner.get(b"futhark_entry_kernel").ok();
-        } else if param == &[AbiScalarType::I64] {
-          self.entry_1_1_p_i64_dev = inner.get(b"futhark_entry_kernel").ok();
-        } else if param == &[] {
-          self.entry_1_1_dev = inner.get(b"futhark_entry_kernel").ok();
-        } else {
-          println!("DEBUG: CudaObjectFFI: out={} in={} space={:?}: unimplemented abi param signature: {:?}",
-              arityout, arityin, space, param);
-          unimplemented!();
-        }
-      }
-      (1, 2, AbiSpace::Device) => {
-        if param == &[AbiScalarType::I64, AbiScalarType::I64, AbiScalarType::I64, AbiScalarType::I64] {
-          self.entry_1_2_p_i64_i64_i64_i64_dev = inner.get(b"futhark_entry_kernel").ok();
-        } else if param == &[AbiScalarType::I64, AbiScalarType::I64, AbiScalarType::I64] {
-          self.entry_1_2_p_i64_i64_i64_dev = inner.get(b"futhark_entry_kernel").ok();
-        } else if param == &[AbiScalarType::I64, AbiScalarType::I64] {
-          self.entry_1_2_p_i64_i64_dev = inner.get(b"futhark_entry_kernel").ok();
-        } else if param == &[] {
-          self.entry_1_2_dev = inner.get(b"futhark_entry_kernel").ok();
-        } else {
-          println!("DEBUG: CudaObjectFFI: out={} in={} space={:?}: unimplemented abi param signature: {:?}",
-              arityout, arityin, space, param);
-          unimplemented!();
-        }
-      }
-      (1, 3, AbiSpace::Device) => {
-        self.entry_1_3_dev = inner.get(b"futhark_entry_kernel").ok();
-      }
-      (1, 4, AbiSpace::Device) => {
-        self.entry_1_4_dev = inner.get(b"futhark_entry_kernel").ok();
-      }
-      _ => unimplemented!()
-    }
-    Some(())
-  }*/
 }

@@ -71,129 +71,7 @@ impl FutharkFloatFormatter {
   }
 }*/
 
-/*#[derive(Clone, Copy, PartialEq, Eq, Debug)]
-#[repr(u8)]
-pub enum AbiOutput {
-  Unspec = 0,
-  Pure = 1,
-  ImplicitInPlace = 2,
-  //ExplicitInPlace,
-  Unique = 3,
-}
-
-impl Default for AbiOutput {
-  fn default() -> AbiOutput {
-    AbiOutput::Unspec
-  }
-}
-
-impl AbiOutput {
-  pub fn from_bits(x: u8) -> AbiOutput {
-    match x {
-      0 => AbiOutput::Unspec,
-      1 => AbiOutput::Pure,
-      2 => AbiOutput::ImplicitInPlace,
-      //3 => AbiOutput::ExplicitInPlace,
-      3 => AbiOutput::Unique,
-      _ => panic!("bug")
-    }
-  }
-
-  pub fn to_bits(self) -> u8 {
-    self as u8
-  }
-}
-
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
-#[repr(u8)]
-pub enum AbiInput {
-  Unspec = 0,
-  Shared = 1,
-  Consumed = 3,
-}
-
-impl Default for AbiInput {
-  fn default() -> AbiInput {
-    AbiInput::Unspec
-  }
-}
-
-impl AbiInput {
-  pub fn from_bits(x: u8) -> AbiInput {
-    match x {
-      0 => AbiInput::Unspec,
-      1 => AbiInput::Shared,
-      3 => AbiInput::Consumed,
-      _ => panic!("bug")
-    }
-  }
-
-  pub fn to_bits(self) -> u8 {
-    self as u8
-  }
-}
-
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
-#[repr(u8)]
-pub enum AbiParam {
-  Unspec = 0,
-  //ImplicitOutShape,
-  //Explicit,
-  // TODO
-}
-
-impl Default for AbiParam {
-  fn default() -> AbiParam {
-    AbiParam::Unspec
-  }
-}
-
-impl AbiParam {
-  pub fn from_bits(x: u8) -> AbiParam {
-    match x {
-      0 => AbiParam::Unspec,
-      _ => panic!("bug")
-    }
-  }
-
-  pub fn to_bits(self) -> u8 {
-    self as u8
-  }
-}
-
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
-#[repr(u8)]
-pub enum AbiArrayRepr {
-  Unspec = 0,
-  //Unit,
-  //Flat,
-  Nd,
-}
-
-impl Default for AbiArrayRepr {
-  fn default() -> AbiArrayRepr {
-    AbiArrayRepr::Unspec
-  }
-}
-
-impl AbiArrayRepr {
-  pub fn from_bits(x: u8) -> AbiArrayRepr {
-    match x {
-      0 => AbiArrayRepr::Unspec,
-      //1 => AbiArrayRepr::Unit,
-      //2 => AbiArrayRepr::Flat,
-      1 => AbiArrayRepr::Nd,
-      _ => panic!("bug")
-    }
-  }
-
-  pub fn to_bits(self) -> u8 {
-    self as u8
-  }
-}*/
-
 #[derive(Clone, Debug)]
-//#[derive(Clone, Copy, Debug)]
 pub enum AbiScalar {
   Unspec,
   F64(Cell<f64>),
@@ -342,128 +220,6 @@ impl Default for AbiSpace {
   }
 }
 
-/*#[derive(Clone, PartialEq, Eq, Default, Debug)]
-pub struct Abi {
-  pub arityout: u16,
-  pub arityin:  u16,
-  pub param_ct: Cell<u16>,
-  //pub output:   AbiOutput,
-  pub space:    AbiSpace,
-  // FIXME
-  /*pub out_repr: [AbiArrayRepr; 1],
-  pub arg_repr: [AbiArrayRepr; 5],
-  pub param_ty: [AbiScalarType; 1],*/
-  pub bits_buf: RefCell<Vec<u8>>,
-}
-
-impl Hash for Abi {
-  fn hash<H: Hasher>(&self, state: &mut H) {
-    self.arityout.hash(state);
-    self.arityin.hash(state);
-    self.param_ct.get().hash(state);
-    self.space.hash(state);
-    self.bits_buf.borrow().hash(state);
-  }
-}
-
-impl Abi {
-  pub fn num_param(&self) -> usize {
-    /*let mut np = 0;
-    for i in 0 .. self.param_ty.len() {
-      if self.param_ty[i] == AbiScalarType::Unspec {
-        break;
-      }
-      np += 1;
-    }
-    np*/
-    self.param_ct.get() as usize
-  }
-
-  pub fn get_out_arr(&self, idx: u16) -> (AbiOutput, AbiArrayRepr, AbiScalarType) {
-    assert!(idx < self.arityout);
-    let val = self.bits_buf.borrow()[idx as usize];
-    let out = AbiOutput::from_bits(val >> 6);
-    let rep = AbiArrayRepr::from_bits((val >> 4) & 3);
-    let dty = AbiScalarType::from_bits(val & 15);
-    (out, rep, dty)
-  }
-
-  pub fn set_out_arr(&self, idx: u16, out: AbiOutput, rep: AbiArrayRepr, dty: AbiScalarType) {
-    assert!(idx < self.arityout);
-    let val = (out.to_bits() << 6) | (rep.to_bits() << 4) | dty.to_bits();
-    if idx as usize == self.bits_buf.borrow().len() {
-      self.bits_buf.borrow_mut().push(val);
-    } else {
-      self.bits_buf.borrow_mut()[idx as usize] = val;
-    }
-  }
-
-  pub fn push_out_arr(&self, idx: u16, out: AbiOutput, rep: AbiArrayRepr, dty: AbiScalarType) {
-    self.set_out_arr(idx, out, rep, dty)
-  }
-
-  /*pub fn push_out_arr(&self, idx: u16, out: AbiOutput, rep: AbiArrayRepr, dty: AbiScalarType) {
-    let val = (out.to_bits() << 6) | (rep.to_bits() << 4) | dty.to_bits();
-    assert_eq!(self.bits_buf.borrow().len(), idx as usize);
-    self.bits_buf.borrow_mut().push(val);
-  }*/
-
-  pub fn get_arg_arr(&self, idx: u16) -> (AbiInput, AbiArrayRepr, AbiScalarType) {
-    assert!(idx < self.arityin);
-    let val = self.bits_buf.borrow_mut()[(self.arityout + idx) as usize];
-    let in_ = AbiInput::from_bits(val >> 6);
-    let rep = AbiArrayRepr::from_bits((val >> 4) & 3);
-    let dty = AbiScalarType::from_bits(val & 15);
-    (in_, rep, dty)
-  }
-
-  pub fn set_arg_arr(&self, idx: u16, in_: AbiInput, rep: AbiArrayRepr, dty: AbiScalarType) {
-    assert!(idx < self.arityin);
-    let val = (in_.to_bits() << 6) | (rep.to_bits() << 4) | dty.to_bits();
-    if (self.arityout + idx) as usize == self.bits_buf.borrow().len() {
-      self.bits_buf.borrow_mut().push(val);
-    } else {
-      self.bits_buf.borrow_mut()[(self.arityout + idx) as usize] = val;
-    }
-  }
-
-  pub fn push_arg_arr(&self, idx: u16, in_: AbiInput, rep: AbiArrayRepr, dty: AbiScalarType) {
-    self.set_arg_arr(idx, in_, rep, dty)
-  }
-
-  /*pub fn push_arg_arr(&self, idx: u16, rep: AbiArrayRepr, dty: AbiScalarType) {
-    let val = (rep.to_bits() << 4) | dty.to_bits();
-    assert_eq!(self.bits_buf.borrow().len(), self.arityout as usize + idx as usize);
-    self.bits_buf.borrow_mut().push(val);
-  }*/
-
-  pub fn get_param(&self, idx: u16) -> AbiScalarType {
-    assert!(idx < self.param_ct.get());
-    let val = self.bits_buf.borrow_mut()[(self.arityout + self.arityin + idx) as usize];
-    let dty = AbiScalarType::from_bits(val);
-    dty
-  }
-
-  pub fn set_param(&self, idx: u16, dty: AbiScalarType) {
-    assert!(idx < self.param_ct.get());
-    let val = dty.to_bits();
-    self.bits_buf.borrow_mut()[(self.arityout + self.arityin + idx) as usize] = val;
-  }
-
-  pub fn push_param(&self, idx: u16, dty: AbiScalarType) {
-    assert_eq!(idx, self.param_ct.get());
-    self.param_ct.set(idx + 1);
-    let val = dty.to_bits();
-    assert_eq!(self.bits_buf.borrow().len(), (self.arityout + self.arityin + idx) as usize);
-    self.bits_buf.borrow_mut().push(val);
-  }
-
-  pub fn push_implicit_out_shape_param(&self, out_idx: u16, ndim: i8) {
-    // FIXME
-    unimplemented!();
-  }
-}*/
-
 #[derive(Clone, PartialEq, Eq, Hash, Default, Debug)]
 pub struct EntryAbi {
   pub arityout: u16,
@@ -492,7 +248,6 @@ impl EntryAbi {
 
 #[derive(Clone, Default, Debug)]
 pub struct Config {
-  // TODO
   pub cachedir: PathBuf,
   pub futhark:  PathBuf,
   pub include:  PathBuf,
@@ -516,10 +271,6 @@ pub enum BuildError {
   Futhark(Option<i32>),
   C,
   H,
-  /*JsonPath,
-  JsonUtf8,
-  JsonFromStr,
-  JsonDecode,*/
   Json,
   Cc,
   DylibPath,
@@ -555,12 +306,6 @@ impl Backend for CudaBackend {
     "cuda"
   }
 }
-
-/*//#[derive(RustcDecodable)]
-pub enum BackendType {
-  Multicore,
-  Cuda,
-}*/
 
 #[derive(RustcDecodable, Debug)]
 pub struct ObjectManifestTypeOps {
@@ -667,7 +412,6 @@ pub struct Object<B: Backend> {
   pub fut_path: PathBuf,
   pub debug:    bool,
   pub manifest: ObjectManifest,
-  //pub eabi: Option<Abi>,
   pub eabi: Option<EntryAbi>,
   pub cfg:  *mut futhark_context_config,
   pub ctx:  *mut futhark_context,
@@ -889,15 +633,13 @@ impl Config {
     let mut h_path = f_path.clone();
     let mut json_path = f_path.clone();
     let mut dylib_path = f_path.clone();
-    //let mut hash_path = f_path.clone();
     let mut stage_path = f_path.clone();
     name_path.set_extension("name");
     c_path.set_extension("c");
     h_path.set_extension("h");
     json_path.set_extension("json");
-    //hash_path.set_extension("hash");
     stage_path.set_extension("stage");
-    // FIXME FIXME: os-specific dylib path.
+    // FIXME: os-specific dylib path.
     match dylib_path.file_name() {
       None => panic!("bug"),
       Some(s) => {
@@ -988,7 +730,6 @@ impl Config {
               if !output.status.success() {
                 let code = output.status.code();
                 println!("DEBUG: futhark_ffi::Config::build: build failed with error code: {:?}", code);
-                //println!("{:?}", output);
                 println!("DEBUG: futhark_ffi::Config::build: ----- stderr below -----");
                 println!("{}", from_utf8(&output.stderr).unwrap());
                 println!("DEBUG: futhark_ffi::Config::build: ----- stderr above -----");
@@ -1097,7 +838,6 @@ impl Config {
             .archive(false)
             .dylib(true)
             .silent(!self.verbose)
-            //.try_compile(dylib_path.file_name().unwrap().to_str().unwrap())
             .try_compile(&stem)
           {
             Err(e) => {
@@ -1300,29 +1040,16 @@ impl ObjectExt<MulticoreBackend> for Object<MulticoreBackend> {
 
 impl ObjectExt<CudaBackend> for Object<CudaBackend> {
   fn enter_kernel(&mut self, eabi: EntryAbi, param: &[AbiScalar], arg_arr: &[UnsafeCell<ArrayDev>], out_arr: &[UnsafeCell<ArrayDev>]) -> Result<(), i32> {
-    /*assert_eq!(out_arr.len(), abi.arityout as usize);
-    // FIXME
-    if let (AbiOutput::ImplicitInPlace, _, _) = abi.get_out_arr(0) {
-      assert_eq!(arg_arr.len(), (abi.arityin + 1) as usize);
-    } else {
-      assert_eq!(arg_arr.len(), abi.arityin as usize);
-    }*/
     let np = param.len();
     let mut param_ty = Vec::with_capacity(np);
     for p in param.iter() {
       param_ty.push(p.type_());
     }
-    /*assert_eq!(abi.num_param(), np);*/
-    /*for _ in np .. 1 {
-      param_ty.push(AbiScalarType::Unspec);
-    }*/
     if self.debug {
     println!("DEBUG: Object::<CudaBackend>::enter_kernel: manifest.out.len={}",
         self.manifest.entry_points.kernel.outputs.len());
     println!("DEBUG: Object::<CudaBackend>::enter_kernel: manifest.in.len={}",
         self.manifest.entry_points.kernel.inputs.len());
-    /*println!("DEBUG: Object::<CudaBackend>::enter_kernel: out={} in={} param_ty={:?} param={:?}",
-        abi.arityout, abi.arityin, &param_ty, param);*/
     println!("DEBUG: Object::<CudaBackend>::enter_kernel: out={} in={} param_ty={:?} param={:?}",
         eabi.arityout, eabi.arityin, &param_ty, param);
     }
@@ -1330,21 +1057,6 @@ impl ObjectExt<CudaBackend> for Object<CudaBackend> {
     assert_eq!(arg_arr.len(), eabi.arityin as usize);
     assert_eq!(np, param_ty.len());
     assert_eq!(np, eabi.param_ct as usize);
-    /*if let (AbiOutput::ImplicitInPlace, _, _) = abi.get_out_arr(0) {
-      if self.manifest.entry_points.kernel.inputs.len() != (abi.arityin + 1) as usize + abi.num_param() {
-        panic!("ERROR: Object::<CudaBackend>::enter_kernel: abi mismatch v. manifest");
-      }
-    } else {
-      if self.manifest.entry_points.kernel.inputs.len() != abi.arityin as usize + abi.num_param() {
-        panic!("ERROR: Object::<CudaBackend>::enter_kernel: abi mismatch v. manifest");
-      }
-    }
-    if param_ty.len() != abi.num_param() {
-      panic!("ERROR: Object::<CudaBackend>::enter_kernel: abi mismatch v. param ty buf");
-    }
-    if param.len() != abi.num_param() {
-      panic!("ERROR: Object::<CudaBackend>::enter_kernel: abi mismatch v. param buf");
-    }*/
     if self.manifest.entry_points.kernel.outputs.len() != eabi.arityout as usize {
       println!("ERROR: Object::<CudaBackend>::enter_kernel: eabi mismatch v. manifest (outputs)");
       println!("ERROR: Object::<CudaBackend>::enter_kernel:   manifest outputs len={}",
@@ -1366,31 +1078,10 @@ impl ObjectExt<CudaBackend> for Object<CudaBackend> {
     // FIXME: we can also compare the eabi and manifest types.
     match self.eabi.as_ref() {
       None => {
-        //let ret = unsafe { self.ffi.load_entry_symbol(AbiSpace::Device, abi.arityin, abi.arityout, &param_ty[ .. np]) };
-        //assert!(ret.is_some());
-        /*let e_abi = Abi{
-          arityout,
-          arityin,
-          // FIXME FIXME
-          param_ct: Cell::new(param.len() as _),
-          //output:   Default::default(),
-          space:    AbiSpace::Device,
-          /*out_repr: Default::default(),
-          arg_repr: Default::default(),
-          param_ty: [param_ty[0]],*/
-          bits_buf: RefCell::new(Vec::new()),
-        };*/
-        /*let mut e_abi = abi.clone();
-        e_abi.space = AbiSpace::Device;
-        self.eabi = Some(e_abi);*/
         assert_eq!(eabi.space, AbiSpace::Device);
         self.eabi = Some(eabi);
       }
       Some(e_abi) => {
-        /*assert_eq!(e_abi.space, AbiSpace::Device);
-        assert_eq!(e_abi.num_param(), abi.num_param());
-        assert_eq!(e_abi.arityin, abi.arityin);
-        assert_eq!(e_abi.arityout, abi.arityout);*/
         assert_eq!(e_abi.space, AbiSpace::Device);
         assert_eq!(e_abi.space, eabi.space);
         assert_eq!(e_abi.param_ct, eabi.param_ct);
@@ -1615,7 +1306,7 @@ pub trait Array_: Sized {
     assert!(!buf.is_null());
     unsafe {
       let shape_buf = buf.offset(size_of::<Self::Mem>().try_into().unwrap()) as *mut i64;
-      // FIXME FIXME: check that we can do copy_nonoverlapping.
+      // FIXME: check that we can do copy_nonoverlapping.
       copy_nonoverlapping(new_shape.as_ptr(), shape_buf, ndim as usize);
     }
   }
@@ -1678,7 +1369,7 @@ impl Clone for Array {
     let ptr = unsafe {
       let mem = malloc(mem_sz) as *mut memblock;
       assert!(!mem.is_null());
-      // FIXME FIXME: check that we can do copy_nonoverlapping.
+      // FIXME: check that we can do copy_nonoverlapping.
       copy_nonoverlapping(o_mem as *const _ as *const u8, mem as *mut u8, mem_sz);
       mem
     };
@@ -1824,7 +1515,7 @@ impl Clone for ArrayDev {
     let ptr = unsafe {
       let mem = malloc(mem_sz) as *mut memblock_dev;
       assert!(!mem.is_null());
-      // FIXME FIXME: check that we can do copy_nonoverlapping.
+      // FIXME: check that we can do copy_nonoverlapping.
       copy_nonoverlapping(o_mem as *const _ as *const u8, mem as *mut u8, mem_sz);
       mem
     };
