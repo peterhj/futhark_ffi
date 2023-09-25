@@ -35,6 +35,7 @@ use std::str::{from_utf8};
 pub mod bindings;
 pub mod blake2s;
 pub mod build_env;
+pub mod rt_compiler;
 pub mod types;
 
 /*#[derive(Default)]
@@ -821,27 +822,54 @@ impl Config {
       }
       if stage >= Stage::Dylib {
         if stage_mem.d.is_none() {
-          match cc::Build::new()
-            // NB: We have to set `out_dir`, `target`, `host`, `debug`, and `opt_level`;
-            // normally they are read from env vars passed by cargo to the build script.
-            .out_dir(&self.cachedir)
-            .target(self.target())
-            .host(self.target())
-            .debug(true)
-            .opt_level(2)
-            .pic(true)
-            .define("FUTHARK_SOURCE_FILE", &format!("\"{}\"", f_path_str) as &str)
-            .include(&self.cachedir)
-            .include(&self.include)
-            .file(&c_path)
-            .object_prefix_hash(false)
-            .archive(false)
-            .dylib(true)
-            .silent(!self.verbose)
-            .try_compile(&stem)
-          {
+          // FIXME: for ispc multicore variant, need to invoke `ispc`
+          // separately on the "*.kernels.ispc" source file to get an
+          // object, then link.
+          let mut objects = Vec::new();
+          if B::cmd_arg() == "ispc" {
+            let mut src = c_path.clone();
+            src.set_extension("kernels.ispc");
+            let mut sources = Vec::new();
+            sources.push(src);
+            match crate::rt_compiler::IspcCompile::try_compile(/*&cc_build,*/ !self.verbose, &sources) {
+              Err(e) => {
+                println!("WARNING: futhark_ffi::Config::build: ispc build error: {:?}", e);
+                return Err(BuildError::Cc);
+              }
+              Ok(objs) => {
+                objects.extend_from_slice(&objs);
+              }
+            }
+          }
+          let mut cc_build = cc::Build::new();
+          // NB: We have to set `out_dir`, `target`, `host`, `debug`, and `opt_level`;
+          // normally they are read from env vars passed by cargo to the build script.
+          cc_build.out_dir(&self.cachedir);
+          cc_build.target(self.target());
+          cc_build.host(self.target());
+          cc_build.debug(true);
+          cc_build.opt_level(2);
+          cc_build.pic(true);
+          cc_build.define("FUTHARK_SOURCE_FILE", &format!("\"{}\"", f_path_str) as &str);
+          cc_build.include(&self.cachedir);
+          cc_build.include(&self.include);
+          cc_build.file(&c_path);
+          cc_build.object_prefix_hash(false);
+          cc_build.archive(false);
+          cc_build.dylib(false);
+          cc_build.silent(!self.verbose);
+          match cc_build.try_compile(None) {
             Err(e) => {
               println!("WARNING: futhark_ffi::Config::build: cc build error: {}", e);
+              return Err(BuildError::Cc);
+            }
+            Ok(objs) => {
+              objects.extend_from_slice(&objs);
+            }
+          }
+          match crate::rt_compiler::CcLink::emit_dylib(&cc_build, !self.verbose, &objects, &stem) {
+            Err(e) => {
+              println!("WARNING: futhark_ffi::Config::build: cc link error: {:?}", e);
               return Err(BuildError::Cc);
             }
             Ok(_) => {}
