@@ -3,6 +3,7 @@ extern crate libc;
 extern crate libloading;
 extern crate rustc_serialize;
 //extern crate ryu;
+extern crate smol_str;
 
 use self::blake2s::{Blake2s};
 use self::bindings::*;
@@ -10,10 +11,12 @@ use self::types::*;
 
 use libc::{malloc, free, c_void};
 //use potato::{Blake2s};
-use rustc_serialize::{Decodable};
+use rustc_serialize::*;
 use rustc_serialize::hex::{ToHex};
 use rustc_serialize::json::{Decoder as JsonDecoder, Json};
+use rustc_serialize::utf8::{len_utf8};
 //use ryu::{Buffer as RyuBuffer};
+use smol_str::{SmolStr};
 
 use std::cell::{Cell, RefCell, UnsafeCell};
 use std::cmp::{max};
@@ -30,7 +33,7 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::ptr::{copy_nonoverlapping, null, null_mut, write};
 use std::slice::{from_raw_parts};
-use std::str::{from_utf8};
+use std::str::{FromStr, from_utf8};
 
 pub mod bindings;
 pub mod blake2s;
@@ -165,6 +168,28 @@ impl Default for AbiScalarType {
   }
 }
 
+impl FromStr for AbiScalarType {
+  type Err = SmolStr;
+
+  fn from_str(s: &str) -> Result<AbiScalarType, SmolStr> {
+    Ok(match s {
+      "f64" => AbiScalarType::F64,
+      "f32" => AbiScalarType::F32,
+      "i64" => AbiScalarType::I64,
+      "i32" => AbiScalarType::I32,
+      "i16" => AbiScalarType::I16,
+      "i8"  => AbiScalarType::I8,
+      "u64" => AbiScalarType::U64,
+      "u32" => AbiScalarType::U32,
+      "u16" => AbiScalarType::U16,
+      "u8"  => AbiScalarType::U8,
+      "f16" => AbiScalarType::F16,
+      //"bf16" => AbiScalarType::Bf16,
+      _ => return Err(s.into())
+    })
+  }
+}
+
 impl AbiScalarType {
   pub fn from_bits(x: u8) -> AbiScalarType {
     match x {
@@ -283,7 +308,9 @@ pub trait Backend {
   type FFI: ObjectFFI;
   type Arr: Array_;
 
+  fn _type_name() -> &'static str;
   fn cmd_arg() -> &'static str;
+  fn space() -> AbiSpace;
 }
 
 pub enum MulticoreBackend {}
@@ -292,8 +319,16 @@ impl Backend for MulticoreBackend {
   type FFI = MulticoreObjectFFI;
   type Arr = Array;
 
+  fn _type_name() -> &'static str {
+    "MulticoreBackend"
+  }
+
   fn cmd_arg() -> &'static str {
     "multicore"
+  }
+
+  fn space() -> AbiSpace {
+    AbiSpace::Default
   }
 }
 
@@ -303,44 +338,161 @@ impl Backend for CudaBackend {
   type FFI = CudaObjectFFI;
   type Arr = ArrayDev;
 
+  fn _type_name() -> &'static str {
+    "CudaBackend"
+  }
+
   fn cmd_arg() -> &'static str {
     "cuda"
+  }
+
+  fn space() -> AbiSpace {
+    AbiSpace::Device
+  }
+}
+
+pub struct FutharkType {
+  pub shape: Box<[Option<i64>]>,
+  pub scalar_ty: AbiScalarType,
+}
+
+#[repr(u8)]
+enum TypeParser {
+  LBrack,
+  Len,
+}
+
+impl FromStr for FutharkType {
+  type Err = SmolStr;
+
+  fn from_str(s: &str) -> Result<FutharkType, SmolStr> {
+    let mut shape = Vec::new();
+    let mut parse = TypeParser::LBrack;
+    let mut o = 0;
+    loop {
+      match parse {
+        TypeParser::LBrack => {
+          let c = s[o .. ].chars().next();
+          match c {
+            Some('[') => {
+              parse = TypeParser::Len;
+              o += len_utf8(c.unwrap() as _);
+            }
+            _ => {
+              let shape = shape.into();
+              let scalar_ty = AbiScalarType::from_str(&s[o .. ])?;
+              return Ok(FutharkType{shape, scalar_ty});
+            }
+          }
+        }
+        TypeParser::Len => {
+          let o0 = o;
+          // FIXME: allow hexadecimal lengths?
+          loop {
+            let c = s[o .. ].chars().next();
+            match c {
+              Some('0') |
+              Some('1') |
+              Some('2') |
+              Some('3') |
+              Some('4') |
+              Some('5') |
+              Some('6') |
+              Some('7') |
+              Some('8') |
+              Some('9') => {
+                o += len_utf8(c.unwrap() as _);
+              }
+              Some(']') => {
+                let maybe_len = if o0 == o {
+                  None
+                } else {
+                  let len: i64 = match (&s[o0 .. o]).parse() {
+                    Ok(n) => n,
+                    Err(_) => return Err(s.into())
+                  };
+                  Some(len)
+                };
+                shape.push(maybe_len);
+                parse = TypeParser::LBrack;
+                o += len_utf8(c.unwrap() as _);
+                break;
+              }
+              _ => return Err(s.into())
+            }
+          }
+        }
+      }
+    }
+  }
+}
+
+impl FutharkType {
+  pub fn format_futhark(&self) -> SmolStr {
+    let mut s = String::new();
+    for &maybe_len in self.shape.iter() {
+      s.push_str("[");
+      if let Some(len) = maybe_len {
+        write!(&mut s, "{}", len).unwrap();
+      }
+      s.push_str("]");
+    }
+    s.push_str(self.scalar_ty.format_futhark());
+    s.into()
+  }
+}
+
+impl Decodable for FutharkType {
+  fn decode<D: Decoder>(d: &mut D) -> Result<FutharkType, D::Error> {
+    FutharkType::from_str(d.read_str()?.as_str()).map_err(|_| d.error("invalid Futhark type"))
+  }
+}
+
+/*impl Encodable for FutharkType {
+  fn encode<E: Encoder>(&self, e: &mut E) -> Result<(), E::Error> {
+    e.emit_str(self.format_futhark().as_str())
+  }
+}*/
+
+impl Debug for FutharkType {
+  fn fmt(&self, f: &mut Formatter) -> FmtResult {
+    write!(f, "FutharkType({:?}{})", &self.shape, self.scalar_ty.format_futhark())
   }
 }
 
 #[derive(RustcDecodable, Debug)]
 pub struct ObjectManifestTypeOps {
-  pub free:         String,
-  pub new:          String,
-  pub shape:        String,
-  pub values:       String,
+  pub free:         SmolStr,
+  pub new:          SmolStr,
+  pub shape:        SmolStr,
+  pub values:       SmolStr,
 }
 
 #[derive(RustcDecodable, Debug)]
 pub struct ObjectManifestType {
-  pub ctype:        String,
-  pub elemtype:     String,
-  pub kind:         String,
+  pub ctype:        SmolStr,
+  pub elemtype:     SmolStr,
+  pub kind:         SmolStr,
   pub ops:          ObjectManifestTypeOps,
   pub rank:         i64,
 }
 
 #[derive(RustcDecodable, Debug)]
 pub struct ObjectManifestInput {
-  pub name:         String,
-  pub type_:        String,
+  pub name:         SmolStr,
+  pub type_:        FutharkType,
   pub unique:       bool,
 }
 
 #[derive(RustcDecodable, Debug)]
 pub struct ObjectManifestOutput {
-  pub type_:        String,
+  pub type_:        FutharkType,
   pub unique:       bool,
 }
 
 #[derive(RustcDecodable, Debug)]
 pub struct ObjectManifestEntry {
-  pub cfun:         String,
+  pub cfun:         SmolStr,
   pub inputs:       Vec<ObjectManifestInput>,
   pub outputs:      Vec<ObjectManifestOutput>,
   pub tuning_params: Vec<String>,
@@ -353,10 +505,10 @@ pub struct ObjectManifestSingleEntry {
 
 #[derive(RustcDecodable, Debug)]
 pub struct ObjectManifest {
-  pub backend:      String,
+  pub backend:      SmolStr,
   pub entry_points: ObjectManifestSingleEntry,
   pub types:        BTreeMap<String, ObjectManifestType>,
-  pub version:      String,
+  pub version:      SmolStr,
 }
 
 pub fn fixup_json_manifest(j: Json) -> Json {
@@ -369,8 +521,7 @@ pub fn fixup_json_manifest(j: Json) -> Json {
         } else {
           k
         };
-        let old_v = new_kvs.insert(new_k, fixup_json_manifest(v));
-        assert!(old_v.is_none());
+        assert!(new_kvs.insert(new_k, fixup_json_manifest(v)).is_none());
       }
       Json::Object(new_kvs)
     }
@@ -989,54 +1140,62 @@ impl Object<CudaBackend> {
 }
 
 pub trait ObjectExt<B: Backend> {
-  fn enter_kernel(&mut self, eabi: EntryAbi, param: &[AbiScalar], arg_arr: &[UnsafeCell<B::Arr>], out_arr: &[UnsafeCell<B::Arr>]) -> Result<(), i32>;
-}
+  fn debug(&self) -> bool;
+  fn manifest(&self) -> &ObjectManifest;
+  fn eabi(&self) -> Option<&EntryAbi>;
+  fn set_eabi(&mut self, eabi: Option<EntryAbi>);
+  fn get_ctx(&self) -> *mut futhark_context;
+  fn ffi(&self) -> &<B as Backend>::FFI;
 
-impl ObjectExt<MulticoreBackend> for Object<MulticoreBackend> {
-  fn enter_kernel(&mut self, eabi: EntryAbi, param: &[AbiScalar], arg_arr: &[UnsafeCell<Array>], out_arr: &[UnsafeCell<Array>]) -> Result<(), i32> {
+  fn enter_kernel(&mut self, eabi: EntryAbi, param: &[AbiScalar], arg_arr: &[UnsafeCell<B::Arr>], out_arr: &[UnsafeCell<B::Arr>]) -> Result<(), i32> {
     let np = param.len();
     let mut param_ty = Vec::with_capacity(np);
     for p in param.iter() {
       param_ty.push(p.type_());
     }
-    if self.debug {
-    println!("DEBUG: Object::<MulticoreBackend>::enter_kernel: manifest.out.len={}",
-        self.manifest.entry_points.kernel.outputs.len());
-    println!("DEBUG: Object::<MulticoreBackend>::enter_kernel: manifest.in.len={}",
-        self.manifest.entry_points.kernel.inputs.len());
-    println!("DEBUG: Object::<MulticoreBackend>::enter_kernel: out={} in={} param_ty={:?} param={:?}",
-        eabi.arityout, eabi.arityin, &param_ty, param);
+    if self.debug() {
+    println!("DEBUG: Object::<{}>::enter_kernel: manifest.out.len={}",
+        B::_type_name(), self.manifest().entry_points.kernel.outputs.len());
+    println!("DEBUG: Object::<{}>::enter_kernel: manifest.in.len={}",
+        B::_type_name(), self.manifest().entry_points.kernel.inputs.len());
+    println!("DEBUG: Object::<{}>::enter_kernel: out={} in={} param_ty={:?} param={:?}",
+        B::_type_name(), eabi.arityout, eabi.arityin, &param_ty, param);
     }
     assert_eq!(out_arr.len(), eabi.arityout as usize);
     assert_eq!(arg_arr.len(), eabi.arityin as usize);
     assert_eq!(np, param_ty.len());
     assert_eq!(np, eabi.param_ct as usize);
-    if self.manifest.entry_points.kernel.outputs.len() != eabi.arityout as usize {
-      println!("ERROR: Object::<MulticoreBackend>::enter_kernel: eabi mismatch v. manifest (outputs)");
-      println!("ERROR: Object::<MulticoreBackend>::enter_kernel:   manifest outputs len={}",
-          self.manifest.entry_points.kernel.outputs.len());
-      println!("ERROR: Object::<MulticoreBackend>::enter_kernel:   eabi arity out={}",
-          eabi.arityout);
+    if self.manifest().entry_points.kernel.outputs.len() != eabi.arityout as usize {
+      println!("ERROR: Object::<{}>::enter_kernel: eabi mismatch v. manifest (outputs)",
+          B::_type_name());
+      println!("ERROR: Object::<{}>::enter_kernel:   manifest outputs len={}",
+          B::_type_name(), self.manifest().entry_points.kernel.outputs.len());
+      println!("ERROR: Object::<{}>::enter_kernel:   eabi arity out={}",
+          B::_type_name(), eabi.arityout);
       panic!();
     }
-    if self.manifest.entry_points.kernel.inputs.len() != (eabi.arityin + eabi.param_ct) as usize {
-      println!("ERROR: Object::<MulticoreBackend>::enter_kernel: eabi mismatch v. manifest (inputs)");
-      println!("ERROR: Object::<MulticoreBackend>::enter_kernel:   manifest inputs len={}",
-          self.manifest.entry_points.kernel.inputs.len());
-      println!("ERROR: Object::<MulticoreBackend>::enter_kernel:   eabi arity in={}",
-          eabi.arityin);
-      println!("ERROR: Object::<MulticoreBackend>::enter_kernel:   eabi param ct={}",
-          eabi.param_ct);
+    if self.manifest().entry_points.kernel.inputs.len() != (eabi.arityin + eabi.param_ct) as usize {
+      println!("ERROR: Object::<{}>::enter_kernel: eabi mismatch v. manifest (inputs)",
+          B::_type_name());
+      println!("ERROR: Object::<{}>::enter_kernel:   manifest inputs len={}",
+          B::_type_name(), self.manifest().entry_points.kernel.inputs.len());
+      println!("ERROR: Object::<{}>::enter_kernel:   eabi arity in={}",
+          B::_type_name(), eabi.arityin);
+      println!("ERROR: Object::<{}>::enter_kernel:   eabi param ct={}",
+          B::_type_name(), eabi.param_ct);
       panic!();
     }
     // FIXME: we can also compare the eabi and manifest types.
-    match self.eabi.as_ref() {
+    for (k, in_) in self.manifest().entry_points.kernel.inputs[arg_arr.len() .. ].iter().enumerate() {
+      assert_eq!(param[k].type_(), in_.type_.scalar_ty);
+    }
+    match self.eabi() {
       None => {
-        assert_eq!(eabi.space, AbiSpace::Default);
-        self.eabi = Some(eabi);
+        assert_eq!(eabi.space, B::space());
+        self.set_eabi(Some(eabi));
       }
       Some(e_abi) => {
-        assert_eq!(e_abi.space, AbiSpace::Default);
+        assert_eq!(e_abi.space, B::space());
         assert_eq!(e_abi.space, eabi.space);
         assert_eq!(e_abi.param_ct, eabi.param_ct);
         assert_eq!(e_abi.arityin, eabi.arityin);
@@ -1045,20 +1204,20 @@ impl ObjectExt<MulticoreBackend> for Object<MulticoreBackend> {
         //assert_eq!(&e_abi.param_ty[..], &param_ty);
       }
     }
-    let mut raw_out: Vec<*mut c_void> = Vec::with_capacity(self.manifest.entry_points.kernel.outputs.len());
-    let mut raw_arg: Vec<*mut c_void> = Vec::with_capacity(self.manifest.entry_points.kernel.inputs.len());
+    let mut raw_out: Vec<*mut c_void> = Vec::with_capacity(self.manifest().entry_points.kernel.outputs.len());
+    let mut raw_arg: Vec<*mut c_void> = Vec::with_capacity(self.manifest().entry_points.kernel.inputs.len());
     for k in 0 .. out_arr.len() {
-      raw_out.push(out_arr[k as usize].get() as *mut c_void);
+      raw_out.push(out_arr[k].get() as *mut c_void);
     }
-    assert_eq!(raw_out.len(), self.manifest.entry_points.kernel.outputs.len());
+    assert_eq!(raw_out.len(), self.manifest().entry_points.kernel.outputs.len());
     for k in 0 .. arg_arr.len() {
-      raw_arg.push(arg_arr[k as usize].get() as *mut c_void);
+      raw_arg.push(arg_arr[k].get() as *mut c_void);
     }
     for k in 0 .. param.len() {
       raw_arg.push(param[k]._get_ptr());
     }
-    assert_eq!(raw_arg.len(), self.manifest.entry_points.kernel.inputs.len());
-    let ret = (self.ffi.base().call_kernel.as_ref().unwrap())(self.ctx, raw_out.as_mut_ptr(), raw_arg.as_mut_ptr());
+    assert_eq!(raw_arg.len(), self.manifest().entry_points.kernel.inputs.len());
+    let ret = (self.ffi().base().call_kernel.as_ref().unwrap())(self.get_ctx(), raw_out.as_mut_ptr(), raw_arg.as_mut_ptr());
     if ret != FUTHARK_SUCCESS {
       return Err(ret);
     }
@@ -1066,77 +1225,55 @@ impl ObjectExt<MulticoreBackend> for Object<MulticoreBackend> {
   }
 }
 
+impl ObjectExt<MulticoreBackend> for Object<MulticoreBackend> {
+  fn debug(&self) -> bool {
+    self.debug
+  }
+
+  fn manifest(&self) -> &ObjectManifest {
+    &self.manifest
+  }
+
+  fn eabi(&self) -> Option<&EntryAbi> {
+    self.eabi.as_ref()
+  }
+
+  fn set_eabi(&mut self, eabi: Option<EntryAbi>) {
+    self.eabi = eabi;
+  }
+
+  fn get_ctx(&self) -> *mut futhark_context {
+    self.ctx
+  }
+
+  fn ffi(&self) -> &MulticoreObjectFFI {
+    &self.ffi
+  }
+}
+
 impl ObjectExt<CudaBackend> for Object<CudaBackend> {
-  fn enter_kernel(&mut self, eabi: EntryAbi, param: &[AbiScalar], arg_arr: &[UnsafeCell<ArrayDev>], out_arr: &[UnsafeCell<ArrayDev>]) -> Result<(), i32> {
-    let np = param.len();
-    let mut param_ty = Vec::with_capacity(np);
-    for p in param.iter() {
-      param_ty.push(p.type_());
-    }
-    if self.debug {
-    println!("DEBUG: Object::<CudaBackend>::enter_kernel: manifest.out.len={}",
-        self.manifest.entry_points.kernel.outputs.len());
-    println!("DEBUG: Object::<CudaBackend>::enter_kernel: manifest.in.len={}",
-        self.manifest.entry_points.kernel.inputs.len());
-    println!("DEBUG: Object::<CudaBackend>::enter_kernel: out={} in={} param_ty={:?} param={:?}",
-        eabi.arityout, eabi.arityin, &param_ty, param);
-    }
-    assert_eq!(out_arr.len(), eabi.arityout as usize);
-    assert_eq!(arg_arr.len(), eabi.arityin as usize);
-    assert_eq!(np, param_ty.len());
-    assert_eq!(np, eabi.param_ct as usize);
-    if self.manifest.entry_points.kernel.outputs.len() != eabi.arityout as usize {
-      println!("ERROR: Object::<CudaBackend>::enter_kernel: eabi mismatch v. manifest (outputs)");
-      println!("ERROR: Object::<CudaBackend>::enter_kernel:   manifest outputs len={}",
-          self.manifest.entry_points.kernel.outputs.len());
-      println!("ERROR: Object::<CudaBackend>::enter_kernel:   eabi arity out={}",
-          eabi.arityout);
-      panic!();
-    }
-    if self.manifest.entry_points.kernel.inputs.len() != (eabi.arityin + eabi.param_ct) as usize {
-      println!("ERROR: Object::<CudaBackend>::enter_kernel: eabi mismatch v. manifest (inputs)");
-      println!("ERROR: Object::<CudaBackend>::enter_kernel:   manifest inputs len={}",
-          self.manifest.entry_points.kernel.inputs.len());
-      println!("ERROR: Object::<CudaBackend>::enter_kernel:   eabi arity in={}",
-          eabi.arityin);
-      println!("ERROR: Object::<CudaBackend>::enter_kernel:   eabi param ct={}",
-          eabi.param_ct);
-      panic!();
-    }
-    // FIXME: we can also compare the eabi and manifest types.
-    match self.eabi.as_ref() {
-      None => {
-        assert_eq!(eabi.space, AbiSpace::Device);
-        self.eabi = Some(eabi);
-      }
-      Some(e_abi) => {
-        assert_eq!(e_abi.space, AbiSpace::Device);
-        assert_eq!(e_abi.space, eabi.space);
-        assert_eq!(e_abi.param_ct, eabi.param_ct);
-        assert_eq!(e_abi.arityin, eabi.arityin);
-        assert_eq!(e_abi.arityout, eabi.arityout);
-        // FIXME: compare eabi types.
-        //assert_eq!(&e_abi.param_ty[..], &param_ty);
-      }
-    }
-    let mut raw_out: Vec<*mut c_void> = Vec::with_capacity(self.manifest.entry_points.kernel.outputs.len());
-    let mut raw_arg: Vec<*mut c_void> = Vec::with_capacity(self.manifest.entry_points.kernel.inputs.len());
-    for k in 0 .. out_arr.len() {
-      raw_out.push(out_arr[k as usize].get() as *mut c_void);
-    }
-    assert_eq!(raw_out.len(), self.manifest.entry_points.kernel.outputs.len());
-    for k in 0 .. arg_arr.len() {
-      raw_arg.push(arg_arr[k as usize].get() as *mut c_void);
-    }
-    for k in 0 .. param.len() {
-      raw_arg.push(param[k]._get_ptr());
-    }
-    assert_eq!(raw_arg.len(), self.manifest.entry_points.kernel.inputs.len());
-    let ret = (self.ffi.base().call_kernel.as_ref().unwrap())(self.ctx, raw_out.as_mut_ptr(), raw_arg.as_mut_ptr());
-    if ret != FUTHARK_SUCCESS {
-      return Err(ret);
-    }
-    Ok(())
+  fn debug(&self) -> bool {
+    self.debug
+  }
+
+  fn manifest(&self) -> &ObjectManifest {
+    &self.manifest
+  }
+
+  fn eabi(&self) -> Option<&EntryAbi> {
+    self.eabi.as_ref()
+  }
+
+  fn set_eabi(&mut self, eabi: Option<EntryAbi>) {
+    self.eabi = eabi;
+  }
+
+  fn get_ctx(&self) -> *mut futhark_context {
+    self.ctx
+  }
+
+  fn ffi(&self) -> &CudaObjectFFI {
+    &self.ffi
   }
 }
 

@@ -8,3 +8,4 @@ cc = { path = "../cc" }
 libc = { path = "../libc" }
 libloading = { path = "../libloading" }
 rustc_serialize = { path = "../rustc_serialize" }
+smol_str = { path = "../smol_str", default-features = false }
