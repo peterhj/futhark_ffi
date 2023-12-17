@@ -186,6 +186,7 @@ pub struct CudaObjectFFI {
   pub ctx_cfg_set_cuModuleUnload:           Option<Symbol<extern "C" fn (*mut futhark_context_config, *mut c_void)>>,
   pub ctx_cfg_set_cuModuleGetFunction:      Option<Symbol<extern "C" fn (*mut futhark_context_config, *mut c_void)>>,
   pub ctx_cfg_set_cuFuncGetAttribute:       Option<Symbol<extern "C" fn (*mut futhark_context_config, *mut c_void)>>,
+  pub ctx_cfg_set_cuFuncSetAttribute:       Option<Symbol<extern "C" fn (*mut futhark_context_config, *mut c_void)>>,
   pub ctx_cfg_set_cuLaunchKernel:           Option<Symbol<extern "C" fn (*mut futhark_context_config, *mut c_void)>>,
   pub ctx_get_cuda_program:         Option<Symbol<extern "C" fn (*mut futhark_context) -> *const *const c_char>>,
   pub ctx_set_max_block_size:       Option<Symbol<extern "C" fn (*mut futhark_context, usize)>>,
@@ -279,6 +280,7 @@ impl CudaObjectFFI {
     self.ctx_cfg_set_cuModuleUnload = inner.get(b"futhark_context_config_set_cuModuleUnload").ok();
     self.ctx_cfg_set_cuModuleGetFunction = inner.get(b"futhark_context_config_set_cuModuleGetFunction").ok();
     self.ctx_cfg_set_cuFuncGetAttribute = inner.get(b"futhark_context_config_set_cuFuncGetAttribute").ok();
+    self.ctx_cfg_set_cuFuncSetAttribute = inner.get(b"futhark_context_config_set_cuFuncSetAttribute").ok();
     self.ctx_cfg_set_cuLaunchKernel = inner.get(b"futhark_context_config_set_cuLaunchKernel").ok();
     self.base.ctx_new = inner.get(b"futhark_context_new").ok();
     self.base.ctx_free = inner.get(b"futhark_context_free").ok();
